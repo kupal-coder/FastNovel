@@ -289,7 +289,7 @@ object SupabaseAuth {
             connection.readTimeout = TIMEOUT_MS
             connection.setRequestProperty("apikey", apiKey)
             connection.setRequestProperty("Authorization", "Bearer $bearerToken")
-            val stream: InputStream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
+            val stream: InputStream? = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
             return Response(connection.responseCode, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
         } finally { connection.disconnect() }
     }
