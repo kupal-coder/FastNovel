@@ -1,6 +1,8 @@
 package com.lagradost.quicknovel.ui.settings
 
+import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -11,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,8 +28,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +55,9 @@ import com.lagradost.quicknovel.ErrorLoadingException
 import com.lagradost.quicknovel.FileHelper
 import com.lagradost.quicknovel.FileStorage
 import com.lagradost.quicknovel.R
+import com.lagradost.quicknovel.auth.LoginActivity
+import com.lagradost.quicknovel.auth.ProfileResult
+import com.lagradost.quicknovel.auth.SupabaseAuth
 import com.lagradost.quicknovel.compose.BlackButton
 import com.lagradost.quicknovel.compose.CloudStreamPrimaryColor
 import com.lagradost.quicknovel.compose.CloudStreamTheme
@@ -83,6 +92,8 @@ import java.util.Date
 import java.util.Locale
 
 object SettingScreen : SearchableSettings {
+    private val USERNAME_REGEX = Regex("^[A-Za-z0-9_]{3,20}$")
+
     @Composable
     override fun getTitleRes(): String = stringResource(R.string.title_settings)
 
@@ -177,7 +188,189 @@ object SettingScreen : SearchableSettings {
                 }
             }
 
+        var isLoggedIn by remember { mutableStateOf(SupabaseAuth.isLoggedIn(context)) }
+        var email by remember { mutableStateOf(SupabaseAuth.getEmail(context)) }
+        var userId by remember { mutableStateOf(SupabaseAuth.currentUserId(context)) }
+        var username by remember { mutableStateOf<String?>(null) }
+        var authRefreshTick by remember { mutableStateOf(0) }
+        var showSignOutDialog by remember { mutableStateOf(false) }
+        var showUsernameDialog by remember { mutableStateOf(false) }
+
+        val loginLauncher =
+            rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+                isLoggedIn = SupabaseAuth.isLoggedIn(context)
+                email = SupabaseAuth.getEmail(context)
+                userId = SupabaseAuth.currentUserId(context)
+                authRefreshTick++
+            }
+
+        DisposableEffect(context) {
+            val authPrefs = context.applicationContext.getSharedPreferences(
+                "supabase_auth",
+                Context.MODE_PRIVATE
+            )
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _: String? ->
+                isLoggedIn = SupabaseAuth.isLoggedIn(context)
+                email = SupabaseAuth.getEmail(context)
+                userId = SupabaseAuth.currentUserId(context)
+            }
+            authPrefs.registerOnSharedPreferenceChangeListener(listener)
+            onDispose {
+                authPrefs.unregisterOnSharedPreferenceChangeListener(listener)
+            }
+        }
+
+        LaunchedEffect(isLoggedIn, userId, authRefreshTick) {
+            username = null
+            if (isLoggedIn) {
+                when (val result = SupabaseAuth.getProfile(context)) {
+                    is ProfileResult.Success -> username = result.username
+                    is ProfileResult.Failure -> {}
+                }
+            }
+        }
+
+        if (showSignOutDialog) {
+            AlertDialog(
+                containerColor = colors.background,
+                onDismissRequest = { showSignOutDialog = false },
+                title = { Text(text = stringResource(R.string.sign_out)) },
+                text = { Text(text = stringResource(R.string.sign_out_confirm)) },
+                confirmButton = {
+                    WhiteButton(
+                        text = stringResource(R.string.sign_out),
+                        onClick = {
+                            showSignOutDialog = false
+                            scope.launch {
+                                SupabaseAuth.signOut(context)
+                                isLoggedIn = false
+                                email = null
+                                userId = null
+                                username = null
+                                loginLauncher.launch(Intent(context, LoginActivity::class.java))
+                            }
+                        }
+                    )
+                },
+                dismissButton = {
+                    BlackButton(
+                        text = stringResource(R.string.cancel),
+                        onClick = { showSignOutDialog = false }
+                    )
+                }
+            )
+        }
+
+        if (showUsernameDialog) {
+            var usernameInput by remember(username) { mutableStateOf(username.orEmpty()) }
+            var usernameError by remember { mutableStateOf<String?>(null) }
+            var isSavingUsername by remember { mutableStateOf(false) }
+            val validationErrorText = stringResource(R.string.username_validation_error)
+
+            AlertDialog(
+                containerColor = colors.background,
+                onDismissRequest = {
+                    if (!isSavingUsername) showUsernameDialog = false
+                },
+                title = { Text(text = stringResource(R.string.username)) },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = usernameInput,
+                            onValueChange = {
+                                usernameInput = it
+                                usernameError = null
+                            },
+                            label = { Text(text = stringResource(R.string.username)) },
+                            singleLine = true,
+                            enabled = !isSavingUsername,
+                            isError = usernameError != null,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        val err = usernameError
+                        if (err != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = err,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    WhiteButton(
+                        text = stringResource(R.string.save),
+                        onClick = {
+                            if (isSavingUsername) return@WhiteButton
+                            if (!USERNAME_REGEX.matches(usernameInput)) {
+                                usernameError = validationErrorText
+                                return@WhiteButton
+                            }
+                            isSavingUsername = true
+                            usernameError = null
+                            scope.launch {
+                                when (val result = SupabaseAuth.setUsername(context, usernameInput)) {
+                                    is ProfileResult.Success -> {
+                                        username = result.username ?: usernameInput
+                                        isSavingUsername = false
+                                        showUsernameDialog = false
+                                    }
+                                    is ProfileResult.Failure -> {
+                                        usernameError = result.message
+                                        isSavingUsername = false
+                                    }
+                                }
+                            }
+                        }
+                    )
+                },
+                dismissButton = {
+                    BlackButton(
+                        text = stringResource(R.string.cancel),
+                        onClick = {
+                            if (!isSavingUsername) showUsernameDialog = false
+                        }
+                    )
+                }
+            )
+        }
+
         return persistentListOf(
+            Preference.PreferenceGroup(
+                title = stringResource(R.string.account),
+                preferenceItems = buildList {
+                    if (isLoggedIn) {
+                        add(
+                            Preference.PreferenceItem.TextPreference(
+                                icon = painterResource(R.drawable.info_24px),
+                                title = stringResource(R.string.sign_out),
+                                subtitle = stringResource(R.string.signed_in_as, email.orEmpty()),
+                                onClick = { showSignOutDialog = true }
+                            )
+                        )
+                        add(
+                            Preference.PreferenceItem.TextPreference(
+                                icon = painterResource(R.drawable.ic_baseline_edit_24),
+                                title = stringResource(R.string.username),
+                                subtitle = username ?: stringResource(R.string.username_not_set),
+                                onClick = { showUsernameDialog = true }
+                            )
+                        )
+                    } else {
+                        add(
+                            Preference.PreferenceItem.TextPreference(
+                                icon = painterResource(R.drawable.info_24px),
+                                title = stringResource(R.string.sign_in),
+                                subtitle = null,
+                                onClick = {
+                                    loginLauncher.launch(Intent(context, LoginActivity::class.java))
+                                }
+                            )
+                        )
+                    }
+                }.toPersistentList()
+            ),
             Preference.PreferenceGroup(
                 title = stringResource(R.string.general_settings),
                 preferenceItems = persistentListOf(
