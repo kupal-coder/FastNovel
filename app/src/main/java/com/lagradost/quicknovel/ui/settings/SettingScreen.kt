@@ -57,6 +57,8 @@ import com.lagradost.quicknovel.FileStorage
 import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.auth.LoginActivity
 import com.lagradost.quicknovel.auth.ProfileResult
+import com.lagradost.quicknovel.auth.ReadingStats
+import com.lagradost.quicknovel.auth.ReadingStatsResult
 import com.lagradost.quicknovel.auth.SupabaseAuth
 import com.lagradost.quicknovel.compose.BlackButton
 import com.lagradost.quicknovel.compose.CloudStreamPrimaryColor
@@ -192,6 +194,7 @@ object SettingScreen : SearchableSettings {
         var email by remember { mutableStateOf(SupabaseAuth.getEmail(context)) }
         var userId by remember { mutableStateOf(SupabaseAuth.currentUserId(context)) }
         var username by remember { mutableStateOf<String?>(null) }
+        var readingStatsSummary by remember { mutableStateOf<String?>(null) }
         var authRefreshTick by remember { mutableStateOf(0) }
         var showSignOutDialog by remember { mutableStateOf(false) }
         var showUsernameDialog by remember { mutableStateOf(false) }
@@ -222,10 +225,25 @@ object SettingScreen : SearchableSettings {
 
         LaunchedEffect(isLoggedIn, userId, authRefreshTick) {
             username = null
+            readingStatsSummary = null
             if (isLoggedIn) {
                 when (val result = SupabaseAuth.getProfile(context)) {
                     is ProfileResult.Success -> username = result.username
                     is ProfileResult.Failure -> {}
+                }
+
+                // Upload what is still pending before reading the totals back.
+                ReadingStats.flush(context)
+                readingStatsSummary = when (val result = SupabaseAuth.getReadingStats(context)) {
+                    is ReadingStatsResult.Success -> context.getString(
+                        R.string.reading_stats_summary,
+                        result.chaptersRead,
+                        result.novelsRead,
+                        (result.secondsRead / 3600L).toInt(),
+                        ((result.secondsRead % 3600L) / 60L).toInt()
+                    )
+
+                    is ReadingStatsResult.Failure -> context.getString(R.string.reading_stats_offline)
                 }
             }
         }
@@ -355,6 +373,14 @@ object SettingScreen : SearchableSettings {
                                 title = stringResource(R.string.username),
                                 subtitle = username ?: stringResource(R.string.username_not_set),
                                 onClick = { showUsernameDialog = true }
+                            )
+                        )
+                        add(
+                            Preference.PreferenceItem.TextPreference(
+                                icon = painterResource(R.drawable.info_24px),
+                                title = stringResource(R.string.reading_stats),
+                                subtitle = readingStatsSummary
+                                    ?: stringResource(R.string.reading_stats_loading)
                             )
                         )
                     } else {

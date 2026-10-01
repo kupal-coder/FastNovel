@@ -341,4 +341,8 @@
     <string name="username_error_invalid">Invalid username</string>
     <string name="username_error_no_internet">No internet connection</string>
     <string name="username_error_sign_in_again">Please sign in again</string>
+    <string name="reading_stats">Reading stats</string>
+    <string name="reading_stats_summary">%1$d chapters · %2$d novels · %3$dh %4$dm</string>
+    <string name="reading_stats_loading">Loading…</string>
+    <string name="reading_stats_offline">Not available offline</string>
 </resources>

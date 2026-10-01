@@ -38,6 +38,17 @@ sealed interface ProfileResult {
     data class Failure(val message: String) : ProfileResult
 }
 
+/** Result of a Supabase reading stats call. */
+sealed interface ReadingStatsResult {
+    data class Success(
+        val chaptersRead: Int,
+        val novelsRead: Int,
+        val secondsRead: Long
+    ) : ReadingStatsResult
+
+    data class Failure(val message: String) : ReadingStatsResult
+}
+
 /**
  * Minimal Supabase Auth (GoTrue) client built on [HttpURLConnection] + org.json.
  *
@@ -252,6 +263,15 @@ object SupabaseAuth {
     /** Best effort POST /auth/v1/logout, the local session is cleared either way. */
     suspend fun signOut(context: Context) {
         withContext(Dispatchers.IO) {
+            // Try one last upload while the session still exists, then drop everything that is
+            // pending so the numbers can never carry over to the next account.
+            try {
+                ReadingStats.flush(context)
+            } catch (_: Exception) {
+                // ignored, the pending values are dropped below anyway
+            }
+            ReadingStats.clear(context)
+
             val accessToken = prefs(context).getString(KEY_ACCESS_TOKEN, null)
             if (isConfigured && !accessToken.isNullOrBlank()) {
                 try {
@@ -299,6 +319,41 @@ object SupabaseAuth {
             ProfileResult.Failure(context.getString(R.string.username_error_no_internet))
         } catch (_: JSONException) {
             ProfileResult.Failure(ERROR_GENERIC)
+        }
+    }
+
+    /** GET /rest/v1/reading_stats?user_id=eq.<userId>&select=chapters_read,novels_read,seconds_read */
+    suspend fun getReadingStats(context: Context): ReadingStatsResult = withContext(Dispatchers.IO) {
+        if (!isConfigured) return@withContext ReadingStatsResult.Failure(ERROR_NOT_CONFIGURED)
+
+        val userId = currentUserId(context)
+            ?: return@withContext ReadingStatsResult.Failure(context.getString(R.string.username_error_sign_in_again))
+        val accessToken = getValidAccessToken(context) ?: return@withContext ReadingStatsResult.Failure(
+            if (!isLoggedIn(context)) context.getString(R.string.username_error_sign_in_again)
+            else context.getString(R.string.username_error_no_internet)
+        )
+
+        val encodedId = URLEncoder.encode(userId, "UTF-8")
+        try {
+            val response = requestJson(
+                method = "GET",
+                endpoint = "$baseUrl/rest/v1/reading_stats?user_id=eq.$encodedId&select=chapters_read,novels_read,seconds_read",
+                bearerToken = accessToken
+            )
+            if (!response.isSuccessful) {
+                return@withContext ReadingStatsResult.Failure(ERROR_GENERIC)
+            }
+            val row = JSONArray(response.body).optJSONObject(0)
+                ?: return@withContext ReadingStatsResult.Failure(ERROR_GENERIC)
+            ReadingStatsResult.Success(
+                chaptersRead = row.optInt("chapters_read", 0),
+                novelsRead = row.optInt("novels_read", 0),
+                secondsRead = row.optLong("seconds_read", 0L)
+            )
+        } catch (_: IOException) {
+            ReadingStatsResult.Failure(context.getString(R.string.username_error_no_internet))
+        } catch (_: JSONException) {
+            ReadingStatsResult.Failure(ERROR_GENERIC)
         }
     }
 

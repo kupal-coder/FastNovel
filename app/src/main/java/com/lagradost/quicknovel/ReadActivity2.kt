@@ -43,6 +43,7 @@ import com.jaredrummler.android.colorpicker.ColorPickerDialog
 import com.jaredrummler.android.colorpicker.ColorPickerDialogListener
 import com.lagradost.quicknovel.CommonActivity.showToast
 import com.lagradost.quicknovel.DataStore.getKey
+import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.TTSNotifications.TTS_NOTIFICATION_ID
 import com.lagradost.quicknovel.databinding.ColorRoundCheckmarkBinding
 import com.lagradost.quicknovel.databinding.ReadBottomSettingsBinding
@@ -578,12 +579,14 @@ class ReadActivity2 : AppCompatActivity(), ColorPickerDialogListener {
     }
 
     override fun onResume() {
+        ReadingStats.onReaderResumed(this)
         viewModel.resumedApp()
         super.onResume()
     }
 
     override fun onPause() {
         viewModel.leftApp()
+        ReadingStats.onReaderPaused(this)
         super.onPause()
     }
 
@@ -684,6 +687,8 @@ class ReadActivity2 : AppCompatActivity(), ColorPickerDialogListener {
     override fun onDestroy() {
         viewModel.stopTTS()
         this.unregisterReceiver(mBatInfoReceiver)
+        // The reading progress of this session is uploaded once the reader is closed.
+        ReadingStats.flushAsync(this)
         super.onDestroy()
     }
 
