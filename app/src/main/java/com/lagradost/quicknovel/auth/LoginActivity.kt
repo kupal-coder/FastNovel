@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,11 +46,11 @@ import kotlinx.coroutines.launch
 
 /** Email + password login / sign up backed by [SupabaseAuth]. */
 class LoginActivity : ComponentActivity() {
-    private var callbackHandler: ((Uri) -> Unit)? = null
+    private val oauthUri = mutableStateOf<Uri?>(null)
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        intent?.data?.let { callbackHandler?.invoke(it) }
+        oauthUri.value = intent?.data
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,6 +63,8 @@ class LoginActivity : ComponentActivity() {
             }
         })
 
+        if (intent?.data?.scheme == "fastnovel") oauthUri.value = intent.data
+
         setContent {
             MaterialTheme(
                 colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
@@ -71,6 +74,8 @@ class LoginActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     LoginScreen(
+                        oauthUri = oauthUri.value,
+                        onOAuthConsumed = { oauthUri.value = null },
                         onAuthenticated = { finish() },
                         onSkip = {
                             SupabaseAuth.skipForSession()
@@ -84,7 +89,12 @@ class LoginActivity : ComponentActivity() {
 }
 
 @Composable
-private fun LoginScreen(onAuthenticated: () -> Unit, onSkip: () -> Unit) {
+private fun LoginScreen(
+    oauthUri: Uri?,
+    onOAuthConsumed: () -> Unit,
+    onAuthenticated: () -> Unit,
+    onSkip: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -95,20 +105,18 @@ private fun LoginScreen(onAuthenticated: () -> Unit, onSkip: () -> Unit) {
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var infoMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
-    callbackHandler = { uri ->
-        isLoading = true
-        scope.launch {
+    LaunchedEffect(oauthUri) {
+        oauthUri?.let { uri ->
+            onOAuthConsumed()
+            isLoading = true
             when (val result = SupabaseAuth.processOAuthCallback(context, uri)) {
                 is AuthResult.Success -> onAuthenticated()
-                is AuthResult.Failure -> { isLoading = false; errorMessage = result.message }
+                is AuthResult.Failure -> {
+                    isLoading = false
+                    errorMessage = result.message
+                }
             }
         }
-    }
-    // Android may create this activity directly from the deep link while the app was closed.
-    if (intent?.data?.scheme == "fastnovel") {
-        val callback = intent.data
-        intent.data = null
-        callback?.let { callbackHandler?.invoke(it) }
     }
 
     fun submit() {
