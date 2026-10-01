@@ -281,19 +281,6 @@ object SupabaseAuth {
         val isSuccessful: Boolean get() = code in 200..299
     }
 
-    private fun getJson(endpoint: String, bearerToken: String): Response {
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
-        try {
-            connection.requestMethod = "GET"
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
-            connection.setRequestProperty("apikey", apiKey)
-            connection.setRequestProperty("Authorization", "Bearer $bearerToken")
-            val stream: InputStream? = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
-            return Response(connection.responseCode, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
-        } finally { connection.disconnect() }
-    }
-
     private fun postJson(
         endpoint: String,
         payload: JSONObject,
