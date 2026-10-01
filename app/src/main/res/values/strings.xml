@@ -328,4 +328,17 @@
     <string name="more_spacing">More Spacing</string>
     <string name="less_spacing">Less Spacing</string>
     <string name="unable_to_inflate">UI was unable to be created correctly, this is a MAJOR BUG and should be reported immediately %s</string>
+
+    <string name="account">Account</string>
+    <string name="sign_in">Sign in</string>
+    <string name="sign_out">Sign out</string>
+    <string name="signed_in_as" formatted="true">Signed in as %s</string>
+    <string name="sign_out_confirm">Are you sure you want to sign out?</string>
+    <string name="username">Username</string>
+    <string name="username_not_set">Not set</string>
+    <string name="username_validation_error">Username must be 3 to 20 characters and contain only letters, digits, and underscores</string>
+    <string name="username_error_taken">That username is taken</string>
+    <string name="username_error_invalid">Invalid username</string>
+    <string name="username_error_no_internet">No internet connection</string>
+    <string name="username_error_sign_in_again">Please sign in again</string>
 </resources>
