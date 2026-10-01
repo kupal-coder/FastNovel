@@ -108,7 +108,6 @@ private fun LoginScreen(
 
     LaunchedEffect(oauthUri) {
         oauthUri?.let { uri ->
-            onOAuthConsumed()
             isLoading = true
             when (val result = SupabaseAuth.processOAuthCallback(context, uri)) {
                 is AuthResult.Success -> onAuthenticated()
@@ -117,6 +116,9 @@ private fun LoginScreen(
                     errorMessage = result.message
                 }
             }
+            // Consume only after the exchange: clearing oauthUri earlier changes this effect's key
+            // and cancels the exchange before it can reach onAuthenticated() / clear the spinner.
+            onOAuthConsumed()
         }
     }
 
