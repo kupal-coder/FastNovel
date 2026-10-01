@@ -16,10 +16,14 @@ import com.lagradost.quicknovel.DataStore.removeKey
 import com.lagradost.quicknovel.DataStore.removeKeys
 import com.lagradost.quicknovel.DataStore.setKey
 import com.lagradost.quicknovel.auth.LoginActivity
+import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.auth.SupabaseAuth
 import java.lang.ref.WeakReference
 
 class BaseApplication : Application(), SingletonImageLoader.Factory, Configuration.Provider  {
+    /** Number of started activities, 0 means the app is in the background. */
+    private var startedActivities = 0
+
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
         context = base
@@ -27,6 +31,9 @@ class BaseApplication : Application(), SingletonImageLoader.Factory, Configurati
 
     override fun onCreate() {
         super.onCreate()
+
+        // Uploads anything that could not be uploaded when the app was closed last time.
+        ReadingStats.flushAsync(this)
 
         // Shows the login screen on top of MainActivity instead of touching MainActivity itself.
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -39,10 +46,21 @@ class BaseApplication : Application(), SingletonImageLoader.Factory, Configurati
                 }
             }
 
-            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityStarted(activity: Activity) {
+                startedActivities++
+            }
+
             override fun onActivityResumed(activity: Activity) {}
             override fun onActivityPaused(activity: Activity) {}
-            override fun onActivityStopped(activity: Activity) {}
+
+            override fun onActivityStopped(activity: Activity) {
+                startedActivities = (startedActivities - 1).coerceAtLeast(0)
+                // No activity is visible anymore, the app went to the background.
+                if (startedActivities == 0) {
+                    ReadingStats.flushAsync(activity)
+                }
+            }
+
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         })

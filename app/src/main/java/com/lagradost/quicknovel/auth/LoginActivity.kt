@@ -76,7 +76,11 @@ class LoginActivity : ComponentActivity() {
                     LoginScreen(
                         oauthUri = oauthUri.value,
                         onOAuthConsumed = { oauthUri.value = null },
-                        onAuthenticated = { finish() },
+                        onAuthenticated = {
+                            // After a sign in the new session can pick up any left over progress.
+                            ReadingStats.flushAsync(this@LoginActivity)
+                            finish()
+                        },
                         onSkip = {
                             SupabaseAuth.skipForSession()
                             finish()

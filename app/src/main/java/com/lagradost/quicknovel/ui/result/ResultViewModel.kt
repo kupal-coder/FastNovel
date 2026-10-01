@@ -40,6 +40,7 @@ import com.lagradost.quicknovel.RESULT_CHAPTER_FILTER_UNREAD
 import com.lagradost.quicknovel.RESULT_CHAPTER_SORT
 import com.lagradost.quicknovel.StreamResponse
 import com.lagradost.quicknovel.UserReview
+import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.mvvm.Resource
 import com.lagradost.quicknovel.mvvm.launchSafe
 import com.lagradost.quicknovel.ui.ReadType
@@ -172,6 +173,8 @@ class ResultViewModel : ViewModel() {
             (load as? StreamResponse) ?: return false
         val index = chapterIndex(chapter) ?: return false
 
+        val wasRead = getChapterReadTime(chapter) != null
+
         if (value) {
             setKey(
                 EPUB_CURRENT_POSITION_READ_AT,
@@ -183,6 +186,16 @@ class ResultViewModel : ViewModel() {
                 EPUB_CURRENT_POSITION_READ_AT,
                 "${streamResponse.name}/$index",
             )
+        }
+
+        // Only the first transition from unread to read counts as progress.
+        if (value && !wasRead) {
+            context?.let { ctx ->
+                ReadingStats.recordChapterRead(ctx)
+                if (index == streamResponse.data.size - 1) {
+                    ReadingStats.recordNovelFinished(ctx, streamResponse.name)
+                }
+            }
         }
 
         return true
