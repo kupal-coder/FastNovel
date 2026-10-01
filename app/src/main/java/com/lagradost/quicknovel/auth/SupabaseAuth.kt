@@ -88,62 +88,42 @@ object SupabaseAuth {
     fun currentUserId(context: Context): String? =
         prefs(context).getString(KEY_USER_ID, null)?.takeIf { it.isNotBlank() }
 
-    /** URL for Supabase's hosted OAuth flow. No provider secret is included in the app. */
+    /** Starts Supabase GoTrue's PKCE provider flow. */
     fun discordAuthorizeUrl(context: Context): String? {
         if (!isConfigured) return null
-        val stateBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        val state = stateBytes.joinToString("") { "%02x".format(it) }
-        prefs(context).edit().putString(KEY_OAUTH_STATE, state).apply()
+        val random = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val verifier = android.util.Base64.encodeToString(random, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
+        val challenge = android.util.Base64.encodeToString(digest, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+        prefs(context).edit().putString(KEY_OAUTH_STATE, verifier).apply()
         val redirect = URLEncoder.encode("fastnovel://auth/callback", "UTF-8")
-        return "$baseUrl/auth/v1/authorize?provider=discord&redirect_to=$redirect&state=$state"
+        return "$baseUrl/auth/v1/authorize?provider=discord&flow_type=pkce&code_challenge=$challenge&code_challenge_method=S256&redirect_to=$redirect"
     }
 
-    /**
-     * Processes the access-token fragment returned by Supabase's OAuth authorize endpoint.
-     * The fragment is intentionally read locally; it is never sent to a web server.
-     */
-    suspend fun processOAuthCallback(context: Context, uri: Uri): AuthResult =
-        withContext(Dispatchers.IO) {
-            if (uri.scheme != "fastnovel" || uri.host != "auth" || uri.path != "/callback") {
-                return@withContext AuthResult.Failure("Invalid authentication callback")
-            }
-            val expectedState = prefs(context).getString(KEY_OAUTH_STATE, null)
-            val returnedState = uri.getQueryParameter("state")
-                ?: uri.fragment?.split('&')?.mapNotNull { it.split('=', limit = 2).takeIf { p -> p.size == 2 } }
-                    ?.firstOrNull { it[0] == "state" }?.get(1)?.let(Uri::decode)
-            if (expectedState.isNullOrBlank() || returnedState != expectedState) {
-                return@withContext AuthResult.Failure("Invalid authentication state")
-            }
-            prefs(context).edit().remove(KEY_OAUTH_STATE).apply()
-            val values = mutableMapOf<String, String>()
-            fun read(part: String?) {
-                part.orEmpty().split('&').forEach { item ->
-                    val pieces = item.split('=', limit = 2)
-                    if (pieces.size == 2) values[pieces[0]] = Uri.decode(pieces[1])
-                }
-            }
-            read(uri.fragment)
-            if (values["error"] != null) {
-                return@withContext AuthResult.Failure(values["error_description"] ?: "Discord sign-in was cancelled")
-            }
-            val accessToken = values["access_token"]
-            val refreshToken = values["refresh_token"]
-            if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+    /** Exchanges the one-time PKCE code returned by GoTrue and persists the session. */
+    suspend fun processOAuthCallback(context: Context, uri: Uri): AuthResult = withContext(Dispatchers.IO) {
+        if (uri.scheme != "fastnovel" || uri.host != "auth" || uri.path != "/callback") {
+            return@withContext AuthResult.Failure("Invalid authentication callback")
+        }
+        val verifier = prefs(context).getString(KEY_OAUTH_STATE, null)
+            ?: return@withContext AuthResult.Failure("No sign-in attempt is pending")
+        val code = uri.getQueryParameter("code")
+            ?: return@withContext AuthResult.Failure(uri.getQueryParameter("error_description") ?: "Discord sign-in was cancelled")
+        try {
+            val response = postJson("$baseUrl/auth/v1/token?grant_type=pkce", JSONObject()
+                .put("auth_code", code)
+                .put("code_verifier", verifier))
+            if (!response.isSuccessful) return@withContext AuthResult.Failure(errorMessageOf(response.body))
+            val json = JSONObject(response.body)
+            if (json.optString("access_token").isBlank() || json.optString("refresh_token").isBlank()) {
                 return@withContext AuthResult.Failure("Discord sign-in did not return a session")
             }
-            val json = JSONObject()
-                .put("access_token", accessToken)
-                .put("refresh_token", refreshToken)
-                .put("expires_in", values["expires_in"]?.toLongOrNull() ?: DEFAULT_EXPIRES_IN_SECONDS)
-                .put("expires_at", values["expires_at"]?.toLongOrNull() ?: 0L)
-            // OAuth fragments do not include the user object; fetch it through Supabase safely.
-            try {
-                val userResponse = getJson("$baseUrl/auth/v1/user", accessToken)
-                if (userResponse.isSuccessful) json.put("user", JSONObject(userResponse.body))
-            } catch (_: IOException) { /* session can still be restored/refreshed */ }
+            prefs(context).edit().remove(KEY_OAUTH_STATE).apply()
             saveSession(context, json)
             AuthResult.Success()
-        }
+        } catch (_: IOException) { AuthResult.Failure(ERROR_NETWORK) }
+        catch (_: JSONException) { AuthResult.Failure(ERROR_GENERIC) }
+    }
 
     /** POST /auth/v1/token?grant_type=password */
     suspend fun signIn(context: Context, email: String, password: String): AuthResult =
