@@ -48,9 +48,9 @@ import kotlinx.coroutines.launch
 class LoginActivity : ComponentActivity() {
     private val oauthUri = mutableStateOf<Uri?>(null)
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        oauthUri.value = intent?.data
+        oauthUri.value = intent.data
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
