@@ -1,5 +1,7 @@
 package com.lagradost.quicknovel.auth
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -43,6 +45,13 @@ import kotlinx.coroutines.launch
 
 /** Email + password login / sign up backed by [SupabaseAuth]. */
 class LoginActivity : ComponentActivity() {
+    private var callbackHandler: ((Uri) -> Unit)? = null
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        intent?.data?.let { callbackHandler?.invoke(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -85,6 +94,22 @@ private fun LoginScreen(onAuthenticated: () -> Unit, onSkip: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var infoMessage by rememberSaveable { mutableStateOf<String?>(null) }
+
+    callbackHandler = { uri ->
+        isLoading = true
+        scope.launch {
+            when (val result = SupabaseAuth.processOAuthCallback(context, uri)) {
+                is AuthResult.Success -> onAuthenticated()
+                is AuthResult.Failure -> { isLoading = false; errorMessage = result.message }
+            }
+        }
+    }
+    // Android may create this activity directly from the deep link while the app was closed.
+    if (intent?.data?.scheme == "fastnovel") {
+        val callback = intent.data
+        intent.data = null
+        callback?.let { callbackHandler?.invoke(it) }
+    }
 
     fun submit() {
         val trimmedEmail = email.trim()
@@ -150,6 +175,19 @@ private fun LoginScreen(onAuthenticated: () -> Unit, onSkip: () -> Unit) {
         )
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                errorMessage = null
+                val url = SupabaseAuth.discordAuthorizeUrl()
+                if (url == null) errorMessage = "Login is not configured in this build"
+                else context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            },
+            enabled = !isLoading,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Continue with Discord") }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
             value = email,

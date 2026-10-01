@@ -2,6 +2,8 @@ package com.lagradost.quicknovel.auth
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
+import java.net.URLEncoder
 import com.lagradost.quicknovel.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -83,6 +85,49 @@ object SupabaseAuth {
 
     fun currentUserId(context: Context): String? =
         prefs(context).getString(KEY_USER_ID, null)?.takeIf { it.isNotBlank() }
+
+    /** URL for Supabase's hosted OAuth flow. No provider secret is included in the app. */
+    fun discordAuthorizeUrl(): String? {
+        if (!isConfigured) return null
+        val redirect = URLEncoder.encode("fastnovel://auth/callback", "UTF-8")
+        return "$baseUrl/auth/v1/authorize?provider=discord&redirect_to=$redirect"
+    }
+
+    /**
+     * Processes the access-token fragment returned by Supabase's OAuth authorize endpoint.
+     * The fragment is intentionally read locally; it is never sent to a web server.
+     */
+    suspend fun processOAuthCallback(context: Context, uri: Uri): AuthResult =
+        withContext(Dispatchers.IO) {
+            val values = mutableMapOf<String, String>()
+            fun read(part: String?) {
+                part.orEmpty().split('&').forEach { item ->
+                    val pieces = item.split('=', limit = 2)
+                    if (pieces.size == 2) values[pieces[0]] = Uri.decode(pieces[1])
+                }
+            }
+            read(uri.fragment)
+            if (values["error"] != null) {
+                return@withContext AuthResult.Failure(values["error_description"] ?: "Discord sign-in was cancelled")
+            }
+            val accessToken = values["access_token"]
+            val refreshToken = values["refresh_token"]
+            if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+                return@withContext AuthResult.Failure("Discord sign-in did not return a session")
+            }
+            val json = JSONObject()
+                .put("access_token", accessToken)
+                .put("refresh_token", refreshToken)
+                .put("expires_in", values["expires_in"]?.toLongOrNull() ?: DEFAULT_EXPIRES_IN_SECONDS)
+                .put("expires_at", values["expires_at"]?.toLongOrNull() ?: 0L)
+            // OAuth fragments do not include the user object; fetch it through Supabase safely.
+            try {
+                val userResponse = getJson("$baseUrl/auth/v1/user", accessToken)
+                if (userResponse.isSuccessful) json.put("user", JSONObject(userResponse.body))
+            } catch (_: IOException) { /* session can still be restored/refreshed */ }
+            saveSession(context, json)
+            AuthResult.Success()
+        }
 
     /** POST /auth/v1/token?grant_type=password */
     suspend fun signIn(context: Context, email: String, password: String): AuthResult =
@@ -238,6 +283,19 @@ object SupabaseAuth {
 
     private class Response(val code: Int, val body: String) {
         val isSuccessful: Boolean get() = code in 200..299
+    }
+
+    private fun getJson(endpoint: String, bearerToken: String): Response {
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = TIMEOUT_MS
+            connection.readTimeout = TIMEOUT_MS
+            connection.setRequestProperty("apikey", apiKey)
+            connection.setRequestProperty("Authorization", "Bearer $bearerToken")
+            val stream: InputStream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
+            return Response(connection.responseCode, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
+        } finally { connection.disconnect() }
     }
 
     private fun postJson(
