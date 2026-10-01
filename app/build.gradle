@@ -7,6 +7,15 @@ apply plugin: 'kotlin-kapt'
 
 apply(plugin: "org.jetbrains.kotlin.plugin.compose")
 
+// Secrets are never committed: local.properties first, then the environment, then a safe default.
+def localProps = new Properties()
+def localFile = rootProject.file("local.properties")
+if (localFile.exists()) {
+    localFile.withInputStream { localProps.load(it) }
+}
+def supabaseUrl = localProps.getProperty("SUPABASE_URL") ?: System.getenv("SUPABASE_URL") ?: "https://pgeilxwuxpioqufyhwti.supabase.co"
+def supabaseKey = localProps.getProperty("SUPABASE_KEY") ?: System.getenv("SUPABASE_KEY") ?: ""
+
 android {
     compileSdkVersion 37
     //buildToolsVersion "30.0.3"
@@ -29,6 +38,8 @@ android {
         versionCode 56
         versionName "3.7.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "String", "SUPABASE_URL", "\"" + supabaseUrl + "\""
+        buildConfigField "String", "SUPABASE_KEY", "\"" + supabaseKey + "\""
     }
 
     buildTypes {
