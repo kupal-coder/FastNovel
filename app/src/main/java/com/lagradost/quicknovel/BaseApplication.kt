@@ -15,6 +15,7 @@ import com.lagradost.quicknovel.DataStore.getKeys
 import com.lagradost.quicknovel.DataStore.removeKey
 import com.lagradost.quicknovel.DataStore.removeKeys
 import com.lagradost.quicknovel.DataStore.setKey
+import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.auth.LoginActivity
 import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.auth.SupabaseAuth
@@ -35,6 +36,13 @@ class BaseApplication : Application(), SingletonImageLoader.Factory, Configurati
         // Uploads anything that could not be uploaded when the app was closed last time.
         ReadingStats.flushAsync(this)
 
+        // Downloads the library of the signed in account and uploads what is pending. Guests
+        // are ignored inside the sync.
+        LibrarySync.syncAsync(this)
+
+        // The reader reports the final position when it closes.
+        BookDownloader2.chapterReadChanged += LibrarySync::onChapterReadChanged
+
         // Shows the login screen on top of MainActivity instead of touching MainActivity itself.
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
@@ -50,7 +58,11 @@ class BaseApplication : Application(), SingletonImageLoader.Factory, Configurati
                 startedActivities++
             }
 
-            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityResumed(activity: Activity) {
+                // Shows a pending account switch question as soon as a screen is there.
+                LibrarySync.onActivityResumed(activity)
+            }
+
             override fun onActivityPaused(activity: Activity) {}
 
             override fun onActivityStopped(activity: Activity) {
@@ -58,6 +70,7 @@ class BaseApplication : Application(), SingletonImageLoader.Factory, Configurati
                 // No activity is visible anymore, the app went to the background.
                 if (startedActivities == 0) {
                     ReadingStats.flushAsync(activity)
+                    LibrarySync.flushAsync(activity)
                 }
             }
 

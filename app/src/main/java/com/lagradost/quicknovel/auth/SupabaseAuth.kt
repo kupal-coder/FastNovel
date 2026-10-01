@@ -283,6 +283,8 @@ object SupabaseAuth {
                 }
             }
             clearSession(context)
+            // The library stays on the device, only the sync state is forgotten.
+            LibrarySync.clear(context)
         }
     }
 
@@ -423,7 +425,7 @@ object SupabaseAuth {
 
     private fun nowSeconds(): Long = System.currentTimeMillis() / 1000L
 
-    private class Response(val code: Int, val body: String) {
+    internal class Response(val code: Int, val body: String) {
         val isSuccessful: Boolean get() = code in 200..299
     }
 
@@ -461,12 +463,29 @@ object SupabaseAuth {
         }
     }
 
-    private fun requestJson(
+    internal fun requestJson(
         method: String,
         endpoint: String,
         payload: JSONObject? = null,
         bearerToken: String? = null,
         prefer: String? = null
+    ): Response = requestJsonBody(method, endpoint, payload?.toString(), bearerToken, prefer)
+
+    /** Same as [requestJson] but with a pre-built body, used for batched upserts. */
+    internal fun requestJson(
+        method: String,
+        endpoint: String,
+        body: JSONArray,
+        bearerToken: String? = null,
+        prefer: String? = null
+    ): Response = requestJsonBody(method, endpoint, body.toString(), bearerToken, prefer)
+
+    private fun requestJsonBody(
+        method: String,
+        endpoint: String,
+        body: String?,
+        bearerToken: String?,
+        prefer: String?
     ): Response {
         val connection = URL(endpoint).openConnection() as HttpURLConnection
         try {
@@ -488,11 +507,11 @@ object SupabaseAuth {
             if (prefer != null) {
                 connection.setRequestProperty("Prefer", prefer)
             }
-            if (payload != null) {
+            if (body != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.outputStream.use { output ->
-                    output.write(payload.toString().toByteArray(Charsets.UTF_8))
+                    output.write(body.toByteArray(Charsets.UTF_8))
                 }
             }
 

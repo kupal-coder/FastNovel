@@ -42,6 +42,7 @@ import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.RESULT_BOOKMARK
 import com.lagradost.quicknovel.RESULT_BOOKMARK_STATE
 import com.lagradost.quicknovel.StreamResponse
+import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.mvvm.Resource
 import com.lagradost.quicknovel.mvvm.launchSafe
 import com.lagradost.quicknovel.mvvm.logError
@@ -272,6 +273,7 @@ class DownloadViewModel : ViewModel() {
     }
 
     fun delete(card: ResultCached) {
+        LibrarySync.onItemRemoved(card.id)
         removeKey(RESULT_BOOKMARK, card.id.toString())
         removeKey(RESULT_BOOKMARK_STATE, card.id.toString())
         loadAllData(false)
@@ -527,6 +529,7 @@ class DownloadViewModel : ViewModel() {
         BookDownloader2.downloadProgressChanged += ::progressChanged
         BookDownloader2.downloadDataRefreshed += ::downloadDataRefreshed
         BookDownloader2.downloadRemoved += ::downloadRemoved
+        BookDownloader2.bookmarkChanged += ::bookmarkChanged
     }
 
     override fun onCleared() {
@@ -534,6 +537,12 @@ class DownloadViewModel : ViewModel() {
         BookDownloader2.downloadDataChanged -= ::progressDataChanged
         BookDownloader2.downloadDataRefreshed -= ::downloadDataRefreshed
         BookDownloader2.downloadRemoved -= ::downloadRemoved
+        BookDownloader2.bookmarkChanged -= ::bookmarkChanged
+    }
+
+    /** A bookmark was added, removed or restored by the sync, show it without a manual refresh. */
+    private fun bookmarkChanged(id: Int) {
+        loadAllData(false)
     }
 
     val activeRefreshTabs = mutableSetOf<Int>()

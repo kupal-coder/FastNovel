@@ -55,6 +55,7 @@ import com.lagradost.quicknovel.ErrorLoadingException
 import com.lagradost.quicknovel.FileHelper
 import com.lagradost.quicknovel.FileStorage
 import com.lagradost.quicknovel.R
+import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.auth.LoginActivity
 import com.lagradost.quicknovel.auth.ProfileResult
 import com.lagradost.quicknovel.auth.ReadingStats
@@ -195,6 +196,7 @@ object SettingScreen : SearchableSettings {
         var userId by remember { mutableStateOf(SupabaseAuth.currentUserId(context)) }
         var username by remember { mutableStateOf<String?>(null) }
         var readingStatsSummary by remember { mutableStateOf<String?>(null) }
+        var librarySyncSummary by remember { mutableStateOf(LibrarySync.summary(context)) }
         var authRefreshTick by remember { mutableStateOf(0) }
         var showSignOutDialog by remember { mutableStateOf(false) }
         var showUsernameDialog by remember { mutableStateOf(false) }
@@ -246,6 +248,7 @@ object SettingScreen : SearchableSettings {
                     is ReadingStatsResult.Failure -> context.getString(R.string.reading_stats_offline)
                 }
             }
+            librarySyncSummary = LibrarySync.summary(context)
         }
 
         if (showSignOutDialog) {
@@ -381,6 +384,19 @@ object SettingScreen : SearchableSettings {
                                 title = stringResource(R.string.reading_stats),
                                 subtitle = readingStatsSummary
                                     ?: stringResource(R.string.reading_stats_loading)
+                            )
+                        )
+                        add(
+                            Preference.PreferenceItem.TextPreference(
+                                icon = painterResource(R.drawable.ic_baseline_cloud_24),
+                                title = stringResource(R.string.library_sync),
+                                subtitle = librarySyncSummary,
+                                onClick = {
+                                    scope.launch {
+                                        LibrarySync.sync(context)
+                                        librarySyncSummary = LibrarySync.summary(context)
+                                    }
+                                }
                             )
                         )
                     } else {

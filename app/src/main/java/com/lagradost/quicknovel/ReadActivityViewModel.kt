@@ -41,6 +41,7 @@ import com.lagradost.quicknovel.BaseApplication.Companion.removeKey
 import com.lagradost.quicknovel.BaseApplication.Companion.setKey
 import com.lagradost.quicknovel.BaseApplication.Companion.setKeyClass
 import com.lagradost.quicknovel.BookDownloader2Helper.getQuickChapter
+import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.CommonActivity.TAG
 import com.lagradost.quicknovel.CommonActivity.activity
 import com.lagradost.quicknovel.CommonActivity.showToast
@@ -1651,6 +1652,7 @@ class ReadActivityViewModel : ViewModel() {
             scrollIndex.char
         )
         setKey(EPUB_CURRENT_POSITION, book.title(), scrollIndex.index)
+        LibrarySync.onProgressChanged(book.title())
 
         context?.let {
             setKey(
@@ -1693,6 +1695,7 @@ class ReadActivityViewModel : ViewModel() {
         // set the keys
         setKey(EPUB_CURRENT_POSITION, book.title(), index)
         setKey(EPUB_CURRENT_POSITION_SCROLL_CHAR, book.title(), 0)
+        LibrarySync.onProgressChanged(book.title())
 
         // set the state
         desiredIndex = ScrollIndex(index, 0, 0)

@@ -40,6 +40,7 @@ import com.lagradost.quicknovel.RESULT_CHAPTER_FILTER_UNREAD
 import com.lagradost.quicknovel.RESULT_CHAPTER_SORT
 import com.lagradost.quicknovel.StreamResponse
 import com.lagradost.quicknovel.UserReview
+import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.mvvm.Resource
 import com.lagradost.quicknovel.mvvm.launchSafe
@@ -348,6 +349,7 @@ class ResultViewModel : ViewModel() {
                     setKey(
                         EPUB_CURRENT_POSITION_SCROLL_CHAR, streamResponse.name, 0,
                     )
+                    LibrarySync.onProgressChanged(streamResponse.name)
                 }
             }
 
@@ -579,6 +581,7 @@ class ResultViewModel : ViewModel() {
             )
             updateBookmarkData()
             BookDownloader2.bookmarkChanged(loadId)
+            LibrarySync.onItemChanged(loadId)
         }
 
         readState.postValue(ReadType.fromSpinner(state))

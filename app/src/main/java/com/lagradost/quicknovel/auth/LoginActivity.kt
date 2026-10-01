@@ -77,8 +77,10 @@ class LoginActivity : ComponentActivity() {
                         oauthUri = oauthUri.value,
                         onOAuthConsumed = { oauthUri.value = null },
                         onAuthenticated = {
-                            // After a sign in the new session can pick up any left over progress.
+                            // After a sign in the new session can pick up any left over progress
+                            // and the library of the account.
                             ReadingStats.flushAsync(this@LoginActivity)
+                            LibrarySync.syncAsync(this@LoginActivity)
                             finish()
                         },
                         onSkip = {
