@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.os.Bundle
 import androidx.work.Configuration
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -13,12 +15,37 @@ import com.lagradost.quicknovel.DataStore.getKeys
 import com.lagradost.quicknovel.DataStore.removeKey
 import com.lagradost.quicknovel.DataStore.removeKeys
 import com.lagradost.quicknovel.DataStore.setKey
+import com.lagradost.quicknovel.auth.LoginActivity
+import com.lagradost.quicknovel.auth.SupabaseAuth
 import java.lang.ref.WeakReference
 
 class BaseApplication : Application(), SingletonImageLoader.Factory, Configuration.Provider  {
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
         context = base
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // Shows the login screen on top of MainActivity instead of touching MainActivity itself.
+        registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                val showLogin = activity is MainActivity &&
+                        savedInstanceState == null &&
+                        SupabaseAuth.shouldShowLogin(activity)
+                if (showLogin) {
+                    activity.startActivity(Intent(activity, LoginActivity::class.java))
+                }
+            }
+
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
     }
 
     override fun newImageLoader(context: PlatformContext): coil3.ImageLoader {
