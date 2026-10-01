@@ -1,5 +1,7 @@
 package com.lagradost.quicknovel.auth
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -26,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +46,13 @@ import kotlinx.coroutines.launch
 
 /** Email + password login / sign up backed by [SupabaseAuth]. */
 class LoginActivity : ComponentActivity() {
+    private val oauthUri = mutableStateOf<Uri?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        oauthUri.value = intent.data
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -53,6 +63,8 @@ class LoginActivity : ComponentActivity() {
             }
         })
 
+        if (intent?.data?.scheme == "fastnovel") oauthUri.value = intent.data
+
         setContent {
             MaterialTheme(
                 colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
@@ -62,6 +74,8 @@ class LoginActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     LoginScreen(
+                        oauthUri = oauthUri.value,
+                        onOAuthConsumed = { oauthUri.value = null },
                         onAuthenticated = { finish() },
                         onSkip = {
                             SupabaseAuth.skipForSession()
@@ -75,16 +89,38 @@ class LoginActivity : ComponentActivity() {
 }
 
 @Composable
-private fun LoginScreen(onAuthenticated: () -> Unit, onSkip: () -> Unit) {
+private fun LoginScreen(
+    oauthUri: Uri?,
+    onOAuthConsumed: () -> Unit,
+    onAuthenticated: () -> Unit,
+    onSkip: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var isSignUp by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var infoMessage by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(oauthUri) {
+        oauthUri?.let { uri ->
+            isLoading = true
+            when (val result = SupabaseAuth.processOAuthCallback(context, uri)) {
+                is AuthResult.Success -> onAuthenticated()
+                is AuthResult.Failure -> {
+                    isLoading = false
+                    errorMessage = result.message
+                }
+            }
+            // Consume only after the exchange: clearing oauthUri earlier changes this effect's key
+            // and cancels the exchange before it can reach onAuthenticated() / clear the spinner.
+            onOAuthConsumed()
+        }
+    }
 
     fun submit() {
         val trimmedEmail = email.trim()
@@ -151,6 +187,19 @@ private fun LoginScreen(onAuthenticated: () -> Unit, onSkip: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        Button(
+            onClick = {
+                errorMessage = null
+                val url = SupabaseAuth.discordAuthorizeUrl(context)
+                if (url == null) errorMessage = "Login is not configured in this build"
+                else context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            },
+            enabled = !isLoading,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Continue with Discord") }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -169,7 +218,12 @@ private fun LoginScreen(onAuthenticated: () -> Unit, onSkip: () -> Unit) {
             label = { Text("Password") },
             singleLine = true,
             enabled = !isLoading,
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                TextButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Text(if (passwordVisible) "Hide" else "Show")
+                }
+            },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth()
         )

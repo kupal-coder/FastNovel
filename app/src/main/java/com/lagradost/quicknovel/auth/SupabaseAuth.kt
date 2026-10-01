@@ -2,6 +2,8 @@ package com.lagradost.quicknovel.auth
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
+import java.net.URLEncoder
 import com.lagradost.quicknovel.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -13,6 +15,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
 
 /** Result of a Supabase authentication call. */
 sealed interface AuthResult {
@@ -40,6 +43,7 @@ object SupabaseAuth {
     private const val KEY_EXPIRES_AT = "expires_at"
     private const val KEY_USER_ID = "user_id"
     private const val KEY_EMAIL = "email"
+    private const val KEY_OAUTH_STATE = "oauth_state"
 
     private const val TIMEOUT_MS = 15_000
     /** Refresh the access token when it expires in less than this many seconds. */
@@ -83,6 +87,43 @@ object SupabaseAuth {
 
     fun currentUserId(context: Context): String? =
         prefs(context).getString(KEY_USER_ID, null)?.takeIf { it.isNotBlank() }
+
+    /** Starts Supabase GoTrue's PKCE provider flow. */
+    fun discordAuthorizeUrl(context: Context): String? {
+        if (!isConfigured) return null
+        val random = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val verifier = android.util.Base64.encodeToString(random, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
+        val challenge = android.util.Base64.encodeToString(digest, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+        prefs(context).edit().putString(KEY_OAUTH_STATE, verifier).apply()
+        val redirect = URLEncoder.encode("fastnovel://auth/callback", "UTF-8")
+        return "$baseUrl/auth/v1/authorize?provider=discord&flow_type=pkce&code_challenge=$challenge&code_challenge_method=S256&redirect_to=$redirect"
+    }
+
+    /** Exchanges the one-time PKCE code returned by GoTrue and persists the session. */
+    suspend fun processOAuthCallback(context: Context, uri: Uri): AuthResult = withContext(Dispatchers.IO) {
+        if (uri.scheme != "fastnovel" || uri.host != "auth" || uri.path != "/callback") {
+            return@withContext AuthResult.Failure("Invalid authentication callback")
+        }
+        val verifier = prefs(context).getString(KEY_OAUTH_STATE, null)
+            ?: return@withContext AuthResult.Failure("No sign-in attempt is pending")
+        val code = uri.getQueryParameter("code")
+            ?: return@withContext AuthResult.Failure(uri.getQueryParameter("error_description") ?: "Discord sign-in was cancelled")
+        try {
+            val response = postJson("$baseUrl/auth/v1/token?grant_type=pkce", JSONObject()
+                .put("auth_code", code)
+                .put("code_verifier", verifier))
+            if (!response.isSuccessful) return@withContext AuthResult.Failure(errorMessageOf(response.body))
+            val json = JSONObject(response.body)
+            if (json.optString("access_token").isBlank() || json.optString("refresh_token").isBlank()) {
+                return@withContext AuthResult.Failure("Discord sign-in did not return a session")
+            }
+            prefs(context).edit().remove(KEY_OAUTH_STATE).apply()
+            saveSession(context, json)
+            AuthResult.Success()
+        } catch (_: IOException) { AuthResult.Failure(ERROR_NETWORK) }
+        catch (_: JSONException) { AuthResult.Failure(ERROR_GENERIC) }
+    }
 
     /** POST /auth/v1/token?grant_type=password */
     suspend fun signIn(context: Context, email: String, password: String): AuthResult =
