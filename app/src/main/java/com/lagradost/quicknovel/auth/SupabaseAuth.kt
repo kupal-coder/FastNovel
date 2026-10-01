@@ -15,6 +15,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
 
 /** Result of a Supabase authentication call. */
 sealed interface AuthResult {
@@ -42,6 +43,7 @@ object SupabaseAuth {
     private const val KEY_EXPIRES_AT = "expires_at"
     private const val KEY_USER_ID = "user_id"
     private const val KEY_EMAIL = "email"
+    private const val KEY_OAUTH_STATE = "oauth_state"
 
     private const val TIMEOUT_MS = 15_000
     /** Refresh the access token when it expires in less than this many seconds. */
@@ -87,10 +89,13 @@ object SupabaseAuth {
         prefs(context).getString(KEY_USER_ID, null)?.takeIf { it.isNotBlank() }
 
     /** URL for Supabase's hosted OAuth flow. No provider secret is included in the app. */
-    fun discordAuthorizeUrl(): String? {
+    fun discordAuthorizeUrl(context: Context): String? {
         if (!isConfigured) return null
+        val stateBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val state = stateBytes.joinToString("") { "%02x".format(it) }
+        prefs(context).edit().putString(KEY_OAUTH_STATE, state).apply()
         val redirect = URLEncoder.encode("fastnovel://auth/callback", "UTF-8")
-        return "$baseUrl/auth/v1/authorize?provider=discord&redirect_to=$redirect"
+        return "$baseUrl/auth/v1/authorize?provider=discord&redirect_to=$redirect&state=$state"
     }
 
     /**
@@ -99,6 +104,17 @@ object SupabaseAuth {
      */
     suspend fun processOAuthCallback(context: Context, uri: Uri): AuthResult =
         withContext(Dispatchers.IO) {
+            if (uri.scheme != "fastnovel" || uri.host != "auth" || uri.path != "/callback") {
+                return@withContext AuthResult.Failure("Invalid authentication callback")
+            }
+            val expectedState = prefs(context).getString(KEY_OAUTH_STATE, null)
+            val returnedState = uri.getQueryParameter("state")
+                ?: uri.fragment?.split('&')?.mapNotNull { it.split('=', limit = 2).takeIf { p -> p.size == 2 } }
+                    ?.firstOrNull { it[0] == "state" }?.get(1)?.let(Uri::decode)
+            if (expectedState.isNullOrBlank() || returnedState != expectedState) {
+                return@withContext AuthResult.Failure("Invalid authentication state")
+            }
+            prefs(context).edit().remove(KEY_OAUTH_STATE).apply()
             val values = mutableMapOf<String, String>()
             fun read(part: String?) {
                 part.orEmpty().split('&').forEach { item ->

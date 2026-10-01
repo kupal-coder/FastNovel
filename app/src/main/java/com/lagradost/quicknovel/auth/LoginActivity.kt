@@ -187,7 +187,7 @@ private fun LoginScreen(
         Button(
             onClick = {
                 errorMessage = null
-                val url = SupabaseAuth.discordAuthorizeUrl()
+                val url = SupabaseAuth.discordAuthorizeUrl(context)
                 if (url == null) errorMessage = "Login is not configured in this build"
                 else context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             },
