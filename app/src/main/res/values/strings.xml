@@ -354,4 +354,43 @@
     <string name="library_sync_upload_unknown_account">this account</string>
     <string name="library_sync_upload_merge">Merge</string>
     <string name="library_sync_upload_skip">Don\'t upload</string>
+
+    <!-- Discover -->
+    <string name="title_discover">Discover</string>
+    <string name="discover_sign_in_required">Sign in to read and share short opinions about novels.</string>
+    <string name="discover_username_required">Set a username in Settings first</string>
+    <string name="discover_all">All</string>
+    <string name="discover_filtered_by">Tagged %s</string>
+    <string name="discover_empty">No posts yet</string>
+    <string name="discover_retry">Retry</string>
+    <string name="discover_load_more">Load more</string>
+    <string name="discover_write">Write a post</string>
+    <string name="discover_choose_novel">Choose a library novel</string>
+    <string name="discover_library_empty">Add a novel to your library first.</string>
+    <string name="discover_loading_tags">Loading the novel\'s tags…</string>
+    <string name="discover_add_tag">Add a provider tag</string>
+    <string name="discover_remove_tag">Remove %s</string>
+    <string name="discover_tag_count">%d/8 tags</string>
+    <string name="discover_opinion">Your opinion</string>
+    <string name="discover_body_count">%d/500 characters · at least 10</string>
+    <string name="discover_rating_optional">Rating (optional)</string>
+    <string name="discover_rate">Rate %d out of 5 stars</string>
+    <string name="discover_rating_value">%d out of 5 stars</string>
+    <string name="discover_post">Post</string>
+    <string name="discover_post_actions">Post actions</string>
+    <string name="discover_report">Report</string>
+    <string name="discover_delete_confirm">Delete your post about %s?</string>
+    <string name="discover_report_confirm">Report the post about %s?</string>
+    <string name="discover_posted">Post published</string>
+    <string name="discover_deleted">Post deleted</string>
+    <string name="discover_reported">Post reported</string>
+    <string name="discover_already_reported">You already reported this post</string>
+    <string name="discover_already_posted">You already posted about this novel, delete it first</string>
+    <string name="discover_daily_limit">You reached today\'s post limit</string>
+    <string name="discover_could_not_post">Couldn\'t post</string>
+    <string name="discover_error">Something went wrong. Please try again.</string>
+    <string name="discover_time_now">Just now</string>
+    <string name="discover_time_minutes">%d min ago</string>
+    <string name="discover_time_hours">%d h ago</string>
+    <string name="discover_time_days">%d d ago</string>
 </resources>
