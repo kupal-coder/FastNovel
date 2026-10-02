@@ -1,9 +1,14 @@
 package com.lagradost.quicknovel.ui.mainpage
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -117,8 +122,8 @@ fun MainPageScreen(state: MainPageState, action: (MainPageAction) -> Unit) {
     }
 
     val searchAction = remember<(SearchResponseAction) -> Unit>(action) {
-        { action ->
-            action(MainPageAction.ResultAction(action))
+        { responseAction ->
+            action(MainPageAction.ResultAction(responseAction))
         }
     }
 
@@ -126,31 +131,53 @@ fun MainPageScreen(state: MainPageState, action: (MainPageAction) -> Unit) {
     val store = AndroidPreferenceStore(context)
     val searchIsRow = store.getBoolean(stringResource(R.string.search_list_view_key), false)
     val searchIsRowState by searchIsRow.collectAsState()
+    val items = if (state.openQuery) state.query.items else state.filter.items
+    val loading = if (state.openQuery) state.query.loading else state.filter.loading
+    val error = if (state.openQuery) state.query.error else state.filter.error
+    val confirmedOffline = error != null && context.hasConfirmedNoInternet()
+    val errorText = stringResource(
+        if (confirmedOffline) R.string.username_error_no_internet else R.string.error_loading
+    )
+    val retry = {
+        if (state.openQuery) {
+            action(MainPageAction.Search(state.query.query))
+        } else {
+            action(MainPageAction.Expand)
+        }
+    }
+    val emptyText = stringResource(
+        if (!state.openQuery && state.filterVisual.tag != null) {
+            R.string.mainpage_tag_no_results
+        } else {
+            R.string.no_data
+        }
+    )
+    val waitingForExcludedNovelPage = shouldWaitForExcludedNovelPage(
+        openQuery = state.openQuery,
+        hasItems = items.isNotEmpty(),
+        page = state.filter.query.page,
+        hasMore = state.filter.hasMore,
+        hasError = state.filter.error != null,
+    )
 
     Scaffold(
         topBar = {
             MainPageSearchBar(
                 openQuery = state.openQuery,
-                loading = if (state.openQuery) {
-                    state.query.loading
-                } else {
-                    state.filter.loading
-                },
+                loading = loading,
                 url = state.filter.url,
                 action = action,
                 query = state.filterVisual,
                 scrollBehavior = scrollBehavior,
-                apiName = state.apiName
+                apiName = state.apiName,
+                hasTags = state.hasTags,
             )
         },
         modifier = Modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { innerPadding ->
-        SearchList(
-            lazyGridState = listState,
-            isRow = searchIsRowState,
-            items = if (state.openQuery) state.query.items else state.filter.items,
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 // This fixes the double padding from the bottom nav bar
@@ -159,14 +186,98 @@ fun MainPageScreen(state: MainPageState, action: (MainPageAction) -> Unit) {
                     end = innerPadding.calculateEndPadding(LocalLayoutDirection.current),
                     top = innerPadding.calculateTopPadding()
                 ),
-            searchAction = searchAction,
-        )
+        ) {
+            if (items.isNotEmpty()) {
+                if (error != null && !loading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = errorText,
+                            color = colors.onBackground,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Button(onClick = retry) {
+                            Text(stringResource(R.string.reload_error))
+                        }
+                    }
+                }
+                SearchList(
+                    lazyGridState = listState,
+                    isRow = searchIsRowState,
+                    items = items,
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                    searchAction = searchAction,
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        loading || waitingForExcludedNovelPage -> {
+                            CircularProgressIndicator(color = colors.onBackground)
+                        }
 
-        LaunchedEffect(shouldLoadMore.value) {
-            if (shouldLoadMore.value && state.filter.error == null && !state.filter.loading) {
+                        error != null -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.padding(24.dp),
+                            ) {
+                                Text(
+                                    text = errorText,
+                                    color = colors.onBackground,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Button(onClick = retry) {
+                                    Text(stringResource(R.string.reload_error))
+                                }
+                            }
+                        }
+
+                        else -> {
+                            Text(
+                                text = emptyText,
+                                color = colors.onBackground,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(24.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        LaunchedEffect(
+            shouldLoadMore.value,
+            state.openQuery,
+            state.filter.items.size,
+            state.filter.query.page,
+            state.filter.loading,
+            state.filter.error,
+            state.filter.hasMore,
+        ) {
+            if (!state.openQuery && shouldLoadMore.value && state.filter.hasMore &&
+                state.filter.error == null && !state.filter.loading &&
+                (state.filter.items.isNotEmpty() || state.filter.query.page > 0)
+            ) {
                 action(MainPageAction.Expand)
             }
         }
+    }
+}
+
+private fun Context.hasConfirmedNoInternet(): Boolean {
+    return try {
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return false
+        val network = connectivity.activeNetwork ?: return true
+        val capabilities = connectivity.getNetworkCapabilities(network) ?: return true
+        !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    } catch (_: SecurityException) {
+        false
     }
 }
 
@@ -257,7 +368,9 @@ fun MainPageSearchBar(
     action: (MainPageAction) -> Unit,
     scrollBehavior: TopAppBarScrollBehavior,
     apiName: String,
+    hasTags: Boolean,
 ) {
+    val clearTagLabel = stringResource(R.string.mainpage_clear_tag)
     val context = LocalContext.current
     val store = AndroidPreferenceStore(context)
     val searchIsRow = store.getBoolean(stringResource(R.string.search_list_view_key), false)
@@ -343,9 +456,9 @@ fun MainPageSearchBar(
                         action(MainPageAction.OpenDialog(DialogType.OrderBy))
                     }
                 }
-                query.tag?.let {
-                    SelectButton(it) {
-                        action(MainPageAction.OpenDialog(DialogType.Tags))
+                if (hasTags) {
+                    SelectButton(query.tag ?: stringResource(R.string.filter_dialog_genre)) {
+                        action(MainPageAction.OpenDialog(DialogType.Tags, clearTagLabel))
                     }
                 }
             }

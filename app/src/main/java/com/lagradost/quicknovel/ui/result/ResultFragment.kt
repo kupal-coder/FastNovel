@@ -23,6 +23,7 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipDrawable
 import com.google.android.material.tabs.TabLayout
 import com.lagradost.quicknovel.CommonActivity
+import com.lagradost.quicknovel.CommonActivity.showToast
 import com.lagradost.quicknovel.DownloadState
 import com.lagradost.quicknovel.LoadResponse
 import com.lagradost.quicknovel.MainActivity.Companion.navigate
@@ -257,10 +258,6 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
                         // resultTagHolder.isGone = res.tags.isNullOrEmpty()
                         resultTag.apply {
 
-                            val map =
-                                api?.tags?.mapIndexed { i, (value, _) -> value to i }
-                                    ?.associate { it } ?: emptyMap()
-
                             res.tags?.forEach { tag ->
                                 val chip = Chip(context)
                                 val chipDrawable = ChipDrawable.createFromAttributes(
@@ -273,21 +270,26 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
                                 chip.text = tag
                                 chip.isChecked = false
                                 chip.isCheckable = false
-                                chip.isFocusable = false
-                                chip.isClickable = false
-
-                                map[tag]?.let { index ->
-                                    chip.isClickable = true
-                                    chip.setOnClickListener {
-                                        val api = repo
-                                        if (api != null)
-                                            activity?.navigate(
-                                                R.id.global_to_navigation_mainpage,
-                                                MainPageFragment.newInstance(
-                                                    api.name,
-                                                    tag = index
-                                                )
+                                chip.isFocusable = true
+                                chip.isClickable = true
+                                chip.setOnClickListener {
+                                    val target = resolveDetailTagBrowseTarget(
+                                        apiName = api?.takeIf { it.hasMainPage }?.name,
+                                        displayedTag = tag,
+                                        providerTags = api?.tags.orEmpty(),
+                                        novelUrl = res.url,
+                                    )
+                                    if (target == null) {
+                                        showToast(R.string.tag_browse_unsupported)
+                                    } else {
+                                        activity?.navigate(
+                                            R.id.global_to_navigation_mainpage,
+                                            MainPageFragment.newInstance(
+                                                target.apiName,
+                                                tag = target.tagIndex,
+                                                excludeNovelUrl = target.novelUrl,
                                             )
+                                        )
                                     }
                                 }
 

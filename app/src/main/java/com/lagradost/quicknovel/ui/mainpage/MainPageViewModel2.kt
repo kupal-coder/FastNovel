@@ -39,6 +39,7 @@ data class MainPageState(
     val query: QueryState = QueryState(),
     val dialog: MainPageDialog? = null,
     val apiName: String,
+    val hasTags: Boolean = false,
 )
 
 @Immutable
@@ -56,7 +57,16 @@ data class FilterState(
     val error: Throwable? = null,
     val url: String = "",
     val query: FilterQuery = FilterQuery(),
+    val hasMore: Boolean = true,
 )
+
+internal fun shouldWaitForExcludedNovelPage(
+    openQuery: Boolean,
+    hasItems: Boolean,
+    page: Int,
+    hasMore: Boolean,
+    hasError: Boolean,
+): Boolean = !openQuery && !hasItems && page > 0 && hasMore && !hasError
 
 @Immutable
 data class FilterQueryVisual(
@@ -93,7 +103,7 @@ sealed class MainPageAction {
     data class OpenInBrowser(val url: String) : MainPageAction()
     object Back : MainPageAction()
     object Dismiss : MainPageAction()
-    data class OpenDialog(val type: DialogType) : MainPageAction()
+    data class OpenDialog(val type: DialogType, val clearTagLabel: String? = null) : MainPageAction()
     data class SelectDialog(val type: DialogType, val selected: Int) : MainPageAction()
 }
 
@@ -105,9 +115,10 @@ sealed class MainPageEffect {
 class MainPageViewModel2(
     val api: APIRepository,
     initQuery: FilterQuery,
+    private val excludeNovelUrl: String? = null,
 ) : ViewModel(), StateContainer<MainPageState> by DefaultStateContainer(
     MainPageState(
-        filter = FilterState(query = initQuery), apiName = api.name
+        filter = FilterState(query = initQuery), apiName = api.name, hasTags = api.tags.isNotEmpty()
     )
 ), EffectContainer<MainPageEffect> by DefaultEffectContainer(), ActionHandler<MainPageAction> {
     companion object {
@@ -119,7 +130,8 @@ class MainPageViewModel2(
                 val apiName = bundle.getString("apiName")!!
                 MainPageViewModel2(
                     getApiFromName(apiName),
-                    FilterQuery(page = 0, category = mainCategory, tag = tag, orderBy = orderBy)
+                    FilterQuery(page = 0, category = mainCategory, tag = tag, orderBy = orderBy),
+                    excludeNovelUrl = bundle.getString("url"),
                 )
             }
         }
@@ -171,7 +183,8 @@ class MainPageViewModel2(
                     MainPageEffect.ErrorLoading(error = error)
                 }
             }.onSuccess { response ->
-                val newList = fromList.addingAll(response.list)
+                val results = response.list.filterNot { it.url == excludeNovelUrl }
+                val newList = fromList.addingAll(results)
                 updateState {
                     // Outdated query, drop it
                     if (this.filter.query != from) {
@@ -183,7 +196,8 @@ class MainPageViewModel2(
                             error = null,
                             items = newList,
                             query = from.copy(page = nextPage),
-                            url = response.url
+                            url = response.url,
+                            hasMore = response.list.isNotEmpty(),
                         )
                     )
                 }
@@ -258,29 +272,40 @@ class MainPageViewModel2(
                     DialogType.Tags -> api.tags
                     DialogType.OrderBy -> api.orderBys
                 }.map { it.first }
+                val options = if (action.type == DialogType.Tags && action.clearTagLabel != null) {
+                    names + action.clearTagLabel
+                } else {
+                    names
+                }
                 updateState {
                     copy(
                         dialog = MainPageDialog(
                             selected = when (action.type) {
                                 DialogType.Category -> filter.query.category
-                                DialogType.Tags -> filter.query.tag
+                                DialogType.Tags -> filter.query.tag.takeIf { it in api.tags.indices }
+                                    ?: api.tags.size
                                 DialogType.OrderBy -> filter.query.orderBy
-                            }, options = names.toPersistentList(), type = action.type
+                            }, options = options.toPersistentList(), type = action.type
                         )
                     )
                 }
             }
 
             is MainPageAction.SelectDialog -> {
+                val selectedTag = if (action.type == DialogType.Tags) {
+                    action.selected.takeIf { it in api.tags.indices } ?: -1
+                } else {
+                    state.value.filter.query.tag
+                }
                 updateState {
                     copy(
                         filter = filter.copy(
                             query = filter.query.copy(
-                                tag = if (action.type == DialogType.Tags) action.selected else filter.query.tag,
+                                tag = selectedTag,
                                 category = if (action.type == DialogType.Category) action.selected else filter.query.category,
                                 orderBy = if (action.type == DialogType.OrderBy) action.selected else filter.query.orderBy,
                                 page = 0,
-                            ), items = persistentListOf(), error = null, url = ""
+                            ), items = persistentListOf(), error = null, url = "", hasMore = true
                         ), dialog = null
                     )
                 }

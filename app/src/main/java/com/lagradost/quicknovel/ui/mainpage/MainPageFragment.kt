@@ -11,7 +11,6 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.lagradost.quicknovel.CommonActivity.showToast
 import com.lagradost.quicknovel.compose.CloudStreamTheme
 import com.lagradost.quicknovel.compose.ObserveEffect
 import com.lagradost.quicknovel.compose.loadPrimaryColor
@@ -24,7 +23,8 @@ class MainPageFragment : Fragment() {
             apiName: String,
             mainCategory: Int? = null,
             orderBy: Int? = null,
-            tag: Int? = null
+            tag: Int? = null,
+            excludeNovelUrl: String? = null,
         ): Bundle =
             Bundle().apply {
                 putString("apiName", apiName)
@@ -35,6 +35,8 @@ class MainPageFragment : Fragment() {
                     putInt("orderBy", orderBy)
                 if (tag != null)
                     putInt("tag", tag)
+                if (excludeNovelUrl != null)
+                    putString("url", excludeNovelUrl)
             }
         fun newInstance(
             apiName: String,
@@ -65,10 +67,8 @@ class MainPageFragment : Fragment() {
             ) {
                 val state by viewModel.state.collectAsStateWithLifecycle()
 
-                ObserveEffect(viewModel.effect) { effect ->
-                    when(effect) {
-                        is MainPageEffect.ErrorLoading -> showToast(effect.error.toString())
-                    }
+                ObserveEffect(viewModel.effect) {
+                    // The state-backed screen presents a safe error message and retry action.
                 }
                 MainPageScreen(state,viewModel::onAction)
             }
