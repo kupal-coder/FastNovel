@@ -135,8 +135,6 @@ class MainPageFragment : Fragment() {
         }
     }
 }
-    }
-}
 
 
 /*
