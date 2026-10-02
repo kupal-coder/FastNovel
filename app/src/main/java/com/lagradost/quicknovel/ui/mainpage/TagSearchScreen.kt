@@ -42,14 +42,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.lagradost.quicknovel.CommonActivity
 import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.compose.CloudStreamTheme.colors
 import com.lagradost.quicknovel.ui.common.SearchResponseAction
 import com.lagradost.quicknovel.ui.common.SearchResponseItem
 
 @Composable
-fun TagSearchScreen(viewModel: TagSearchViewModel) {
+fun TagSearchScreen(
+    viewModel: TagSearchViewModel,
+    onBack: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsState()
     val searchAction = remember<(SearchResponseAction) -> Unit>(viewModel) {
         { action -> viewModel.onResultAction(action) }
@@ -65,9 +67,7 @@ fun TagSearchScreen(viewModel: TagSearchViewModel) {
                     .padding(horizontal = 4.dp),
             ) {
                 IconButton(
-                    onClick = {
-                        CommonActivity.activity?.onBackPressedDispatcher?.onBackPressed()
-                    }
+                    onClick = onBack
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_baseline_arrow_back_24),

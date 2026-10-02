@@ -111,7 +111,12 @@ class MainPageFragment : Fragment() {
                     mode = context.loadThemeMode(),
                     primaryColor = context.loadPrimaryColor(),
                 ) {
-                    TagSearchScreen(viewModel = tagSearchViewModel)
+                    TagSearchScreen(
+                        viewModel = tagSearchViewModel,
+                        onBack = {
+                            activity?.onBackPressedDispatcher?.onBackPressed()
+                        }
+                    )
                 }
             }
             return@apply
