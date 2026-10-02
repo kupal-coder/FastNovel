@@ -3,7 +3,7 @@ package com.lagradost.quicknovel.ui.result
 import com.lagradost.quicknovel.MainAPI
 import java.util.Locale
 
-internal enum class DetailTagFilterKind {
+enum class DetailTagFilterKind {
     TAG,
     MAIN_CATEGORY,
 }
