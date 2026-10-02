@@ -527,6 +527,7 @@ class MainActivity : AppCompatActivity() {
             R.id.navigation_download,
             R.id.navigation_search,
             R.id.navigation_settings,
+            R.id.navigation_discover,
         ).contains(destination.id)
 
         binding?.apply {

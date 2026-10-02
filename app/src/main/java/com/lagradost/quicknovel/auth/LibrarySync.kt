@@ -609,6 +609,25 @@ object LibrarySync {
 
     // ------------------------------------------------------------------ local library
 
+    /** Read-only metadata for Discover's library picker; does not queue or change sync state. */
+    data class LibraryNovel(
+        val title: String,
+        val provider: String,
+        val url: String,
+        val cover: String?,
+        val tags: List<String>?,
+    )
+
+    fun localNovels(context: Context): List<LibraryNovel> = localLibrary(context).map { item ->
+        LibraryNovel(
+            title = item.cached.name,
+            provider = item.cached.apiName,
+            url = item.cached.source,
+            cover = item.cached.poster,
+            tags = item.cached.tags,
+        )
+    }.sortedBy { it.title.lowercase(Locale.ROOT) }
+
     /** Every novel that is in the library right now, NONE entries are not part of it. */
     private fun localLibrary(context: Context): List<LocalItem> {
         val items = ArrayList<LocalItem>()
