@@ -23,6 +23,7 @@ import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,8 +94,11 @@ class TagSearchViewModel : ViewModel() {
     private val inFlightJobs = HashMap<String, Job>()
     private val repositories = HashMap<String, APIRepository>()
 
-    internal var availableApis: List<MainAPI> = Apis.apis
+    internal var availableApisProvider: () -> List<MainAPI> = { Apis.apis }
     internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    internal var coroutineScope: CoroutineScope? = null
+    private val activeScope: CoroutineScope
+        get() = coroutineScope ?: viewModelScope
     internal var pageLoader: TagPageLoader = TagPageLoader { api, page, mainCategory, orderBy, tag ->
         val repo = synchronized(repositories) {
             repositories.getOrPut(api.name) { APIRepository(api) }
@@ -159,7 +163,7 @@ class TagSearchViewModel : ViewModel() {
 
     private fun rebuildTargetsAndLoad() {
         val resolved = resolveEnabledProviderTagTargets(
-            apis = availableApis,
+            apis = availableApisProvider(),
             enabledProviderNames = enabledNames,
             enabledLanguages = enabledLanguages,
             rawTagLabel = rawTagLabel,
@@ -258,7 +262,7 @@ class TagSearchViewModel : ViewModel() {
         val request = buildDetailTagMainPageRequest(api, target)
         val excluded = excludeNovelUrl?.trim()?.trimEnd('/')
 
-        val job = viewModelScope.launch(ioDispatcher) {
+        val job = activeScope.launch(ioDispatcher) {
             val result = pageLoader.loadPage(
                 api = api,
                 page = nextPage,

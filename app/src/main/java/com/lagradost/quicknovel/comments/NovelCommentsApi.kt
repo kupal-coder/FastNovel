@@ -1,13 +1,13 @@
 package com.lagradost.quicknovel.comments
 
 import android.content.Context
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.lagradost.quicknovel.BuildConfig
 import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.auth.SupabaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
@@ -65,7 +65,7 @@ internal fun interface CommentHttpTransport {
     fun request(
         method: String,
         endpoint: String,
-        payload: JSONObject?,
+        payloadJson: String?,
         bearerToken: String?,
         prefer: String?,
     ): CommentHttpResponse
@@ -79,13 +79,15 @@ object NovelCommentsApi {
 
     private const val UPSERT_PREFER = "resolution=merge-duplicates,return=representation"
 
+    private val mapper = ObjectMapper()
     private val usernameCache = ConcurrentHashMap<String, String>()
 
-    private val defaultTransport = CommentHttpTransport { method, endpoint, payload, bearerToken, prefer ->
+    private val defaultTransport = CommentHttpTransport { method, endpoint, payloadJson, bearerToken, prefer ->
+        val payloadObj = payloadJson?.let { JSONObject(it) }
         val response = SupabaseAuth.requestJson(
             method = method,
             endpoint = endpoint,
-            payload = payload,
+            payload = payloadObj,
             bearerToken = bearerToken,
             prefer = prefer,
         )
@@ -205,7 +207,7 @@ object NovelCommentsApi {
             val firstAttempt = transport.request(
                 method = "GET",
                 endpoint = endpoint,
-                payload = null,
+                payloadJson = null,
                 bearerToken = bearerToken,
                 prefer = null,
             )
@@ -213,7 +215,7 @@ object NovelCommentsApi {
                 transport.request(
                     method = "GET",
                     endpoint = endpoint,
-                    payload = null,
+                    payloadJson = null,
                     bearerToken = null,
                     prefer = null,
                 )
@@ -230,15 +232,18 @@ object NovelCommentsApi {
             return CommentLoadResult.ServiceUnavailable
         }
 
-        val array = try {
-            JSONArray(response.body)
-        } catch (_: JSONException) {
+        val arrayNode = try {
+            mapper.readTree(response.body)
+        } catch (_: Exception) {
+            return CommentLoadResult.ServiceUnavailable
+        }
+        if (arrayNode == null || !arrayNode.isArray) {
             return CommentLoadResult.ServiceUnavailable
         }
 
-        val comments = ArrayList<NovelComment>(array.length())
-        for (i in 0 until array.length()) {
-            val row = array.optJSONObject(i) ?: continue
+        val comments = ArrayList<NovelComment>(arrayNode.size())
+        for (row in arrayNode) {
+            if (row == null || !row.isObject) continue
             val parsed = parseCommentRow(
                 row = row,
                 baseUrl = baseUrl,
@@ -252,7 +257,7 @@ object NovelCommentsApi {
         return CommentLoadResult.Success(
             NovelCommentsPage(
                 comments = comments,
-                hasMore = array.length() >= limit,
+                hasMore = arrayNode.size() >= limit,
             )
         )
     }
@@ -291,7 +296,6 @@ object NovelCommentsApi {
             return@withContext CommentWriteResult.SessionExpired
         }
 
-        // Refresh cached username for the current user so profile changes reflect immediately
         usernameCache.remove(sessionUserId)
         val defaultUsername = appContext.getString(R.string.novel_comments_default_username)
 
@@ -338,18 +342,19 @@ object NovelCommentsApi {
             return CommentWriteResult.ServiceUnavailable
         }
 
-        val payload = JSONObject()
+        val payloadNode = mapper.createObjectNode()
             .put("provider_name", cleanProvider)
             .put("novel_url", cleanUrl)
             .put("user_id", sessionUserId.trim())
             .put("rating", rating)
             .put("comment", cleanComment)
+        val payloadJson = mapper.writeValueAsString(payloadNode)
 
         val response = try {
             transport.request(
                 method = "POST",
                 endpoint = buildUpsertCommentUrl(baseUrl),
-                payload = payload,
+                payloadJson = payloadJson,
                 bearerToken = accessToken,
                 prefer = UPSERT_PREFER,
             )
@@ -423,7 +428,7 @@ object NovelCommentsApi {
             transport.request(
                 method = "DELETE",
                 endpoint = buildDeleteCommentUrl(baseUrl, cleanId),
-                payload = null,
+                payloadJson = null,
                 bearerToken = accessToken,
                 prefer = null,
             )
@@ -453,10 +458,11 @@ object NovelCommentsApi {
         val trimmed = body.trim()
         if (trimmed.isEmpty()) return null
         return try {
-            val row = if (trimmed.startsWith("[")) {
-                JSONArray(trimmed).optJSONObject(0)
-            } else {
-                JSONObject(trimmed)
+            val root = mapper.readTree(trimmed) ?: return null
+            val row = when {
+                root.isArray && root.size() > 0 -> root.get(0)
+                root.isObject -> root
+                else -> null
             } ?: return null
             parseCommentRow(
                 row = row,
@@ -465,24 +471,24 @@ object NovelCommentsApi {
                 defaultUsername = defaultUsername,
                 transport = transport,
             )
-        } catch (_: JSONException) {
+        } catch (_: Exception) {
             null
         }
     }
 
     private fun parseCommentRow(
-        row: JSONObject,
+        row: JsonNode,
         baseUrl: String,
         bearerToken: String?,
         defaultUsername: String,
         transport: CommentHttpTransport,
     ): NovelComment? {
-        val id = row.optString("id").trim()
-        val providerName = row.optString("provider_name").trim()
-        val novelUrl = row.optString("novel_url").trim()
-        val userId = row.optString("user_id").trim()
-        val rating = row.optInt("rating", 0)
-        val commentText = if (row.isNull("comment")) "" else row.optString("comment").trim()
+        val id = row.textOrEmpty("id")
+        val providerName = row.textOrEmpty("provider_name")
+        val novelUrl = row.textOrEmpty("novel_url")
+        val userId = row.textOrEmpty("user_id")
+        val rating = row.get("rating")?.asInt(0) ?: 0
+        val commentText = row.textOrEmpty("comment")
 
         if (
             id.isEmpty() ||
@@ -514,30 +520,40 @@ object NovelCommentsApi {
             avatarUrl = avatarUrl,
             rating = rating,
             comment = commentText,
-            createdAt = row.optString("created_at", ""),
-            updatedAt = row.optString("updated_at", ""),
+            createdAt = row.textOrEmpty("created_at"),
+            updatedAt = row.textOrEmpty("updated_at"),
         )
     }
 
-    private fun extractInlineUsername(row: JSONObject): String? {
-        if (!row.isNull("username")) {
-            val direct = row.optString("username").trim()
-            if (direct.isNotEmpty() && direct != "null") return direct
-        }
-        val profileObj = row.optJSONObject("profiles")
-        if (profileObj != null && !profileObj.isNull("username")) {
-            val nested = profileObj.optString("username").trim()
+    private fun JsonNode.textOrEmpty(field: String): String {
+        val child = this.get(field) ?: return ""
+        if (child.isNull) return ""
+        return child.asText("").trim()
+    }
+
+    private fun extractInlineUsername(row: JsonNode): String? {
+        val direct = row.textOrEmpty("username")
+        if (direct.isNotEmpty() && direct != "null") return direct
+
+        val profileObj = row.get("profiles")
+        if (profileObj != null && profileObj.isObject) {
+            val nested = profileObj.textOrEmpty("username")
             if (nested.isNotEmpty() && nested != "null") return nested
         }
         return null
     }
 
-    private fun extractVerifiedPublicAvatarUrl(row: JSONObject): String? {
-        val candidate = when {
-            !row.isNull("avatar_url") -> row.optString("avatar_url").trim()
-            row.optJSONObject("profiles")?.isNull("avatar_url") == false ->
-                row.optJSONObject("profiles")?.optString("avatar_url")?.trim().orEmpty()
-            else -> ""
+    private fun extractVerifiedPublicAvatarUrl(row: JsonNode): String? {
+        val direct = row.textOrEmpty("avatar_url")
+        val candidate = if (direct.isNotEmpty()) {
+            direct
+        } else {
+            val profileObj = row.get("profiles")
+            if (profileObj != null && profileObj.isObject) {
+                profileObj.textOrEmpty("avatar_url")
+            } else {
+                ""
+            }
         }
         return candidate.takeIf {
             it.isNotEmpty() &&
@@ -560,7 +576,7 @@ object NovelCommentsApi {
             val first = transport.request(
                 method = "GET",
                 endpoint = endpoint,
-                payload = null,
+                payloadJson = null,
                 bearerToken = bearerToken,
                 prefer = null,
             )
@@ -568,7 +584,7 @@ object NovelCommentsApi {
                 transport.request(
                     method = "GET",
                     endpoint = endpoint,
-                    payload = null,
+                    payloadJson = null,
                     bearerToken = null,
                     prefer = null,
                 )
@@ -584,14 +600,10 @@ object NovelCommentsApi {
         }
 
         val fetchedUsername = try {
-            val array = JSONArray(response.body)
-            val obj = array.optJSONObject(0)
-            if (obj != null && !obj.isNull("username")) {
-                obj.optString("username").trim().takeIf { it.isNotEmpty() && it != "null" }
-            } else {
-                null
-            }
-        } catch (_: JSONException) {
+            val array = mapper.readTree(response.body)
+            val obj = if (array != null && array.isArray && array.size() > 0) array.get(0) else null
+            obj?.textOrEmpty("username")?.takeIf { it.isNotEmpty() && it != "null" }
+        } catch (_: Exception) {
             null
         }
 

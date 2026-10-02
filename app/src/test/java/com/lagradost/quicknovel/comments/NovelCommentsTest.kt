@@ -128,10 +128,10 @@ class NovelCommentsTest {
             accessToken = "jwt-token",
             rating = 4,
             comment = "  Updated review text  ",
-            transport = { method, endpoint, payload, _, prefer ->
+            transport = { method, endpoint, payloadJson, _, prefer ->
                 if (method == "POST") {
                     capturedPrefer = prefer
-                    capturedUserId = payload?.optString("user_id")
+                    capturedUserId = payloadJson
                     assertTrue(endpoint.endsWith("/rest/v1/novel_comments?on_conflict=provider_name,novel_url,user_id"))
                     CommentHttpResponse(
                         code = 201,
@@ -157,7 +157,7 @@ class NovelCommentsTest {
         )
 
         assertEquals("resolution=merge-duplicates,return=representation", capturedPrefer)
-        assertEquals("auth-user-1", capturedUserId)
+        assertTrue(capturedUserId?.contains("\"user_id\":\"auth-user-1\"") == true)
         assertTrue(successResult is CommentWriteResult.Success)
 
         assertEquals(

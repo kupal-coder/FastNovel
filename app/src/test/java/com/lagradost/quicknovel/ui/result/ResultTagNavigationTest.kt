@@ -12,7 +12,9 @@ import com.lagradost.quicknovel.ui.common.ImmutableSearchResponse
 import com.lagradost.quicknovel.ui.mainpage.TagPageLoader
 import com.lagradost.quicknovel.ui.mainpage.TagSearchViewModel
 import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -210,8 +212,9 @@ class ResultTagNavigationTest {
 
         var providerBShouldFail = true
         val viewModel = TagSearchViewModel().apply {
-            availableApis = listOf(providerA, providerB)
+            availableApisProvider = { listOf(providerA, providerB) }
             ioDispatcher = Dispatchers.Unconfined
+            coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
             pageLoader = TagPageLoader { api, page, _, _, tag ->
                 if (api.name == "ProviderB" && providerBShouldFail) {
                     Result.failure(IOException("ProviderB network error"))
