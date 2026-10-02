@@ -416,9 +416,12 @@
     <string name="novel_comments_update">Update comment</string>
     <string name="novel_comments_edit">Edit</string>
     <string name="novel_comments_delete">Delete</string>
+    <string name="novel_comments_report">Report</string>
     <string name="novel_comments_cancel_edit">Cancel</string>
     <string name="novel_comments_delete_confirm_title">Delete comment</string>
     <string name="novel_comments_delete_confirm_message">Are you sure you want to delete your rating and comment?</string>
+    <string name="novel_comments_report_confirm_title">Report comment</string>
+    <string name="novel_comments_report_confirm_message">Are you sure you want to report this comment?</string>
     <string name="novel_comments_empty">No comments yet. Be the first to rate and comment.</string>
     <string name="novel_comments_load_more">Load more comments</string>
     <string name="novel_comments_loading">Loading comments…</string>
@@ -426,6 +429,10 @@
     <string name="novel_comments_posted_success">Comment posted.</string>
     <string name="novel_comments_updated_success">Comment updated.</string>
     <string name="novel_comments_deleted_success">Comment deleted.</string>
+    <string name="novel_comments_reported_success">Comment reported.</string>
+    <string name="novel_comments_already_reported">Already reported</string>
+    <string name="novel_comments_report_error">Couldn’t report comment. Please try again.</string>
+    <string name="novel_comments_daily_limit">You’ve reached the daily comment limit (20 per day). Please try again later.</string>
     <string name="novel_comments_validation_error">Choose a 1–5 star rating and write a comment.</string>
     <string name="novel_comments_sign_in_required">Sign in to rate and comment.</string>
     <string name="novel_comments_session_expired">Your session expired. Sign in again to comment.</string>

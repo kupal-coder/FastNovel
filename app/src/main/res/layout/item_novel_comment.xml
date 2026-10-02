@@ -87,6 +87,20 @@
                     android:textColor="?attr/grayTextColor"
                     android:textSize="13sp" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/comment_item_report_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="6dp"
+                android:text="@string/novel_comments_report"
+                android:textColor="?attr/grayTextColor"
+                android:textSize="13sp"
+                android:visibility="gone"
+                tools:visibility="visible" />
         </LinearLayout>
 
         <!-- Line 2: 1-5 stars on the next line -->

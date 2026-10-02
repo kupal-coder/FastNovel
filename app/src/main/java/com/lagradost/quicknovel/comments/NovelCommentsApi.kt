@@ -11,7 +11,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
-import java.util.concurrent.ConcurrentHashMap
 
 data class NovelComment(
     val id: String,
@@ -40,6 +39,7 @@ sealed interface CommentLoadResult {
 sealed interface CommentWriteResult {
     data class Success(val comment: NovelComment?) : CommentWriteResult
     data object ValidationError : CommentWriteResult
+    data object DailyLimitReached : CommentWriteResult
     data object NotSignedIn : CommentWriteResult
     data object SessionExpired : CommentWriteResult
     data object NetworkError : CommentWriteResult
@@ -52,6 +52,14 @@ sealed interface CommentDeleteResult {
     data object SessionExpired : CommentDeleteResult
     data object NetworkError : CommentDeleteResult
     data object ServiceUnavailable : CommentDeleteResult
+}
+
+sealed interface CommentReportResult {
+    data object Success : CommentReportResult
+    data object AlreadyReported : CommentReportResult
+    data object NotSignedIn : CommentReportResult
+    data object SessionExpired : CommentReportResult
+    data object Failure : CommentReportResult
 }
 
 internal data class CommentHttpResponse(
@@ -76,11 +84,13 @@ object NovelCommentsApi {
     const val MIN_RATING = 1
     const val MAX_RATING = 5
     const val MAX_COMMENT_LENGTH = 2000
+    const val MAX_PROVIDER_NAME_LENGTH = 100
+    const val MAX_NOVEL_URL_LENGTH = 1000
+    const val MAX_REPORT_REASON_LENGTH = 200
 
     private const val UPSERT_PREFER = "resolution=merge-duplicates,return=representation"
 
     private val mapper = ObjectMapper()
-    private val usernameCache = ConcurrentHashMap<String, String>()
 
     private val defaultTransport = CommentHttpTransport { method, endpoint, payloadJson, bearerToken, prefer ->
         val payloadObj = payloadJson?.let { JSONObject(it) }
@@ -127,7 +137,7 @@ object NovelCommentsApi {
         val encodedProvider = encode(providerName.trim())
         val encodedUrl = encode(canonicalNovelUrl(novelUrl))
         return "$cleanBase/rest/v1/novel_comments" +
-            "?select=id,provider_name,novel_url,user_id,rating,comment,created_at,updated_at" +
+            "?select=id,provider_name,novel_url,user_id,author_name,rating,comment,created_at,updated_at" +
             "&provider_name=eq.$encodedProvider" +
             "&novel_url=eq.$encodedUrl" +
             "&order=created_at.desc" +
@@ -145,9 +155,9 @@ object NovelCommentsApi {
         return "$cleanBase/rest/v1/novel_comments?id=eq.${encode(commentId.trim())}"
     }
 
-    internal fun buildProfileLookupUrl(baseUrl: String, userId: String): String {
+    internal fun buildReportCommentUrl(baseUrl: String): String {
         val cleanBase = baseUrl.trim().trimEnd('/')
-        return "$cleanBase/rest/v1/profiles?id=eq.${encode(userId.trim())}&select=username"
+        return "$cleanBase/rest/v1/novel_comment_reports"
     }
 
     suspend fun fetchComments(
@@ -191,7 +201,12 @@ object NovelCommentsApi {
         if (!isConfigured) return CommentLoadResult.ServiceUnavailable
         val cleanProvider = providerName.trim()
         val cleanUrl = canonicalNovelUrl(novelUrl)
-        if (cleanProvider.isEmpty() || cleanUrl.isEmpty()) {
+        if (
+            cleanProvider.isEmpty() ||
+            cleanProvider.length > MAX_PROVIDER_NAME_LENGTH ||
+            cleanUrl.isEmpty() ||
+            cleanUrl.length > MAX_NOVEL_URL_LENGTH
+        ) {
             return CommentLoadResult.ServiceUnavailable
         }
 
@@ -246,10 +261,7 @@ object NovelCommentsApi {
             if (row == null || !row.isObject) continue
             val parsed = parseCommentRow(
                 row = row,
-                baseUrl = baseUrl,
-                bearerToken = bearerToken,
                 defaultUsername = defaultUsername,
-                transport = transport,
             ) ?: continue
             comments.add(parsed)
         }
@@ -296,7 +308,6 @@ object NovelCommentsApi {
             return@withContext CommentWriteResult.SessionExpired
         }
 
-        usernameCache.remove(sessionUserId)
         val defaultUsername = appContext.getString(R.string.novel_comments_default_username)
 
         upsertCommentInternal(
@@ -338,7 +349,12 @@ object NovelCommentsApi {
         val cleanProvider = providerName.trim()
         val cleanUrl = canonicalNovelUrl(novelUrl)
         val cleanComment = comment.trim()
-        if (cleanProvider.isEmpty() || cleanUrl.isEmpty()) {
+        if (
+            cleanProvider.isEmpty() ||
+            cleanProvider.length > MAX_PROVIDER_NAME_LENGTH ||
+            cleanUrl.isEmpty() ||
+            cleanUrl.length > MAX_NOVEL_URL_LENGTH
+        ) {
             return CommentWriteResult.ServiceUnavailable
         }
 
@@ -368,15 +384,15 @@ object NovelCommentsApi {
             return CommentWriteResult.SessionExpired
         }
         if (!response.isSuccessful) {
+            if (isDailyLimitError(response.body)) {
+                return CommentWriteResult.DailyLimitReached
+            }
             return CommentWriteResult.ServiceUnavailable
         }
 
         val savedComment = parseRepresentationComment(
             body = response.body,
-            baseUrl = baseUrl,
-            bearerToken = accessToken,
             defaultUsername = defaultUsername,
-            transport = transport,
         )
         return CommentWriteResult.Success(savedComment)
     }
@@ -448,12 +464,127 @@ object NovelCommentsApi {
         return CommentDeleteResult.Success
     }
 
+    suspend fun reportComment(
+        context: Context,
+        commentId: String,
+        reason: String = "",
+    ): CommentReportResult = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        val wasLoggedIn = SupabaseAuth.isLoggedIn(appContext)
+        if (!wasLoggedIn) {
+            return@withContext CommentReportResult.NotSignedIn
+        }
+        if (!SupabaseAuth.isConfigured) {
+            return@withContext CommentReportResult.Failure
+        }
+
+        val accessToken = SupabaseAuth.getValidAccessToken(appContext)
+        if (accessToken.isNullOrBlank()) {
+            return@withContext if (!SupabaseAuth.isLoggedIn(appContext)) {
+                CommentReportResult.SessionExpired
+            } else {
+                CommentReportResult.Failure
+            }
+        }
+
+        val sessionUserId = SupabaseAuth.currentUserId(appContext)
+        if (sessionUserId.isNullOrBlank()) {
+            return@withContext CommentReportResult.SessionExpired
+        }
+
+        reportCommentInternal(
+            isConfigured = SupabaseAuth.isConfigured,
+            baseUrl = baseUrl,
+            commentId = commentId,
+            sessionUserId = sessionUserId,
+            accessToken = accessToken,
+            reason = reason,
+            transport = defaultTransport,
+        )
+    }
+
+    internal fun reportCommentInternal(
+        isConfigured: Boolean,
+        baseUrl: String,
+        commentId: String,
+        sessionUserId: String?,
+        accessToken: String?,
+        reason: String = "",
+        transport: CommentHttpTransport = defaultTransport,
+    ): CommentReportResult {
+        if (!isConfigured) return CommentReportResult.Failure
+        if (sessionUserId.isNullOrBlank() || accessToken.isNullOrBlank()) {
+            return CommentReportResult.NotSignedIn
+        }
+
+        val cleanId = commentId.trim()
+        if (cleanId.isEmpty()) return CommentReportResult.Failure
+        val cleanReason = reason.trim().take(MAX_REPORT_REASON_LENGTH)
+
+        val payloadNode = mapper.createObjectNode()
+            .put("comment_id", cleanId)
+            .put("user_id", sessionUserId.trim())
+            .put("reason", cleanReason)
+        val payloadJson = mapper.writeValueAsString(payloadNode)
+
+        val response = try {
+            transport.request(
+                method = "POST",
+                endpoint = buildReportCommentUrl(baseUrl),
+                payloadJson = payloadJson,
+                bearerToken = accessToken,
+                prefer = "return=minimal",
+            )
+        } catch (_: Exception) {
+            return CommentReportResult.Failure
+        }
+
+        if (response.code == 401 || response.code == 403) {
+            return CommentReportResult.SessionExpired
+        }
+        if (isDuplicateReportError(response.code, response.body)) {
+            return CommentReportResult.AlreadyReported
+        }
+        if (!response.isSuccessful) {
+            return CommentReportResult.Failure
+        }
+
+        return CommentReportResult.Success
+    }
+
+    private fun isDailyLimitError(body: String): Boolean {
+        if (body.contains("Daily comment limit reached", ignoreCase = true)) {
+            return true
+        }
+        return try {
+            val node = mapper.readTree(body)
+            val message = node?.textOrEmpty("message").orEmpty()
+            val details = node?.textOrEmpty("details").orEmpty()
+            message.contains("Daily comment limit reached", ignoreCase = true) ||
+                details.contains("Daily comment limit reached", ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isDuplicateReportError(code: Int, body: String): Boolean {
+        if (code == 409) return true
+        if (body.contains("23505")) return true
+        return try {
+            val node = mapper.readTree(body)
+            val errorCode = node?.textOrEmpty("code").orEmpty()
+            val message = node?.textOrEmpty("message").orEmpty()
+            errorCode == "23505" ||
+                message.contains("novel_comment_reports_comment_user_key", ignoreCase = true) ||
+                message.contains("duplicate key", ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun parseRepresentationComment(
         body: String,
-        baseUrl: String,
-        bearerToken: String?,
         defaultUsername: String,
-        transport: CommentHttpTransport,
     ): NovelComment? {
         val trimmed = body.trim()
         if (trimmed.isEmpty()) return null
@@ -466,10 +597,7 @@ object NovelCommentsApi {
             } ?: return null
             parseCommentRow(
                 row = row,
-                baseUrl = baseUrl,
-                bearerToken = bearerToken,
                 defaultUsername = defaultUsername,
-                transport = transport,
             )
         } catch (_: Exception) {
             null
@@ -478,10 +606,7 @@ object NovelCommentsApi {
 
     private fun parseCommentRow(
         row: JsonNode,
-        baseUrl: String,
-        bearerToken: String?,
         defaultUsername: String,
-        transport: CommentHttpTransport,
     ): NovelComment? {
         val id = row.textOrEmpty("id")
         val providerName = row.textOrEmpty("provider_name")
@@ -501,23 +626,17 @@ object NovelCommentsApi {
             return null
         }
 
-        val inlineUsername = extractInlineUsername(row)
-        val username = inlineUsername ?: resolveUsernameForUserId(
-            userId = userId,
-            baseUrl = baseUrl,
-            bearerToken = bearerToken,
-            defaultUsername = defaultUsername,
-            transport = transport,
-        )
-        val avatarUrl = extractVerifiedPublicAvatarUrl(row)
+        val authorName = row.textOrEmpty("author_name")
+            .takeIf { it.isNotEmpty() && it != "null" }
+            ?: defaultUsername
 
         return NovelComment(
             id = id,
             providerName = providerName,
             novelUrl = novelUrl,
             userId = userId,
-            username = username,
-            avatarUrl = avatarUrl,
+            username = authorName,
+            avatarUrl = null,
             rating = rating,
             comment = commentText,
             createdAt = row.textOrEmpty("created_at"),
@@ -529,93 +648,6 @@ object NovelCommentsApi {
         val child = this.get(field) ?: return ""
         if (child.isNull) return ""
         return child.asText("").trim()
-    }
-
-    private fun extractInlineUsername(row: JsonNode): String? {
-        val direct = row.textOrEmpty("username")
-        if (direct.isNotEmpty() && direct != "null") return direct
-
-        val profileObj = row.get("profiles")
-        if (profileObj != null && profileObj.isObject) {
-            val nested = profileObj.textOrEmpty("username")
-            if (nested.isNotEmpty() && nested != "null") return nested
-        }
-        return null
-    }
-
-    private fun extractVerifiedPublicAvatarUrl(row: JsonNode): String? {
-        val direct = row.textOrEmpty("avatar_url")
-        val candidate = if (direct.isNotEmpty()) {
-            direct
-        } else {
-            val profileObj = row.get("profiles")
-            if (profileObj != null && profileObj.isObject) {
-                profileObj.textOrEmpty("avatar_url")
-            } else {
-                ""
-            }
-        }
-        return candidate.takeIf {
-            it.isNotEmpty() &&
-                it != "null" &&
-                (it.startsWith("https://") || it.startsWith("http://"))
-        }
-    }
-
-    private fun resolveUsernameForUserId(
-        userId: String,
-        baseUrl: String,
-        bearerToken: String?,
-        defaultUsername: String,
-        transport: CommentHttpTransport,
-    ): String {
-        usernameCache[userId]?.let { return it }
-
-        val endpoint = buildProfileLookupUrl(baseUrl, userId)
-        val response = try {
-            val first = transport.request(
-                method = "GET",
-                endpoint = endpoint,
-                payloadJson = null,
-                bearerToken = bearerToken,
-                prefer = null,
-            )
-            if (first.code == 401 && bearerToken != null) {
-                transport.request(
-                    method = "GET",
-                    endpoint = endpoint,
-                    payloadJson = null,
-                    bearerToken = null,
-                    prefer = null,
-                )
-            } else {
-                first
-            }
-        } catch (_: Exception) {
-            return defaultUsername
-        }
-
-        if (!response.isSuccessful) {
-            return defaultUsername
-        }
-
-        val fetchedUsername = try {
-            val array = mapper.readTree(response.body)
-            val obj = if (array != null && array.isArray && array.size() > 0) array.get(0) else null
-            obj?.textOrEmpty("username")?.takeIf { it.isNotEmpty() && it != "null" }
-        } catch (_: Exception) {
-            null
-        }
-
-        if (fetchedUsername != null) {
-            usernameCache[userId] = fetchedUsername
-            return fetchedUsername
-        }
-        return defaultUsername
-    }
-
-    internal fun clearUsernameCacheForTests() {
-        usernameCache.clear()
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

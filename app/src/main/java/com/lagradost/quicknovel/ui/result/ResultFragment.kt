@@ -22,7 +22,11 @@ import androidx.core.widget. ImageViewCompat
 import androidx.core.widget.NestedScrollView
 import androidx.core.widget.doOnTextChanged
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
+import kotlinx.coroutines.launch
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipDrawable
@@ -140,6 +144,13 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
         activity?.apply {
             window?.navigationBarColor =
                 colorFromAttribute(R.attr.primaryBlackBackground)
+        }
+
+        binding?.let { currentBinding ->
+            renderCommunityCommentsState(
+                currentBinding,
+                viewModel.commentsState.value
+            )
         }
     }
 
@@ -896,16 +907,6 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
         setupCommunityComments(binding)
     }
 
-    override fun onResume() {
-        super.onResume()
-        binding?.let { currentBinding ->
-            renderCommunityCommentsState(
-                currentBinding,
-                viewModel.commentsState.value ?: ResultCommentsUiState()
-            )
-        }
-    }
-
     private fun setupCommunityComments(binding: FragmentResultBinding) {
         val ratingStars = listOf(
             binding.commentRatingStar1,
@@ -951,8 +952,12 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
             viewModel.loadMoreCommunityComments()
         }
 
-        observe(viewModel.commentsState) { state ->
-            renderCommunityCommentsState(binding, state)
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.commentsState.collect { state ->
+                    renderCommunityCommentsState(binding, state)
+                }
+            }
         }
     }
 
@@ -1087,6 +1092,7 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
 
         val isAuthor = NovelCommentsApi.canModifyComment(comment, currentUserId)
         itemBinding.commentItemAuthorActions.isVisible = isAuthor
+        itemBinding.commentItemReportButton.isVisible = !isAuthor
         if (isAuthor) {
             itemBinding.commentItemEditButton.setOnClickListener {
                 viewModel.startEditingComment(comment, ::launchSignInFlow)
@@ -1094,6 +1100,10 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
             }
             itemBinding.commentItemDeleteButton.setOnClickListener {
                 confirmDeleteComment(comment)
+            }
+        } else {
+            itemBinding.commentItemReportButton.setOnClickListener {
+                confirmReportComment(comment)
             }
         }
 
@@ -1125,6 +1135,18 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
             .setMessage(R.string.novel_comments_delete_confirm_message)
             .setPositiveButton(R.string.novel_comments_delete) { _, _ ->
                 viewModel.deleteCommunityComment(comment, ::launchSignInFlow)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmReportComment(comment: NovelComment) {
+        val ctx = context ?: return
+        AlertDialog.Builder(ctx, R.style.AlertDialogCustom)
+            .setTitle(R.string.novel_comments_report_confirm_title)
+            .setMessage(R.string.novel_comments_report_confirm_message)
+            .setPositiveButton(R.string.novel_comments_report) { _, _ ->
+                viewModel.reportCommunityComment(comment, ::launchSignInFlow)
             }
             .setNegativeButton(R.string.cancel, null)
             .show()

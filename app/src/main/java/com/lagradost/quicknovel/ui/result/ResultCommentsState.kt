@@ -1,7 +1,10 @@
 package com.lagradost.quicknovel.ui.result
 
 import androidx.annotation.StringRes
+import com.lagradost.quicknovel.R
+import com.lagradost.quicknovel.comments.CommentLoadResult
 import com.lagradost.quicknovel.comments.NovelComment
+import com.lagradost.quicknovel.comments.NovelCommentsApi
 
 data class ResultCommentsUiState(
     val providerName: String = "",
@@ -21,6 +24,72 @@ data class ResultCommentsUiState(
     fun findOwnComment(currentUserId: String?): NovelComment? {
         if (currentUserId.isNullOrBlank()) return null
         return comments.firstOrNull { it.userId == currentUserId }
+    }
+}
+
+internal fun applyDraftRatingUpdate(
+    state: ResultCommentsUiState,
+    rating: Int,
+): ResultCommentsUiState {
+    val clamped = rating.coerceIn(0, NovelCommentsApi.MAX_RATING)
+    val clearValidation = state.formStatusRes == R.string.novel_comments_validation_error &&
+        NovelCommentsApi.isValidSubmission(clamped, state.draftComment)
+    return state.copy(
+        draftRating = clamped,
+        formStatusRes = if (clearValidation) null else state.formStatusRes,
+    )
+}
+
+internal fun applyDraftCommentUpdate(
+    state: ResultCommentsUiState,
+    text: String,
+): ResultCommentsUiState {
+    if (state.draftComment == text) return state
+    val clearValidation = state.formStatusRes == R.string.novel_comments_validation_error &&
+        NovelCommentsApi.isValidSubmission(state.draftRating, text)
+    return state.copy(
+        draftComment = text,
+        formStatusRes = if (clearValidation) null else state.formStatusRes,
+    )
+}
+
+internal fun applyInitialLoadCompletion(
+    state: ResultCommentsUiState,
+    providerName: String,
+    novelUrl: String,
+    result: CommentLoadResult,
+): ResultCommentsUiState {
+    if (state.providerName.isNotEmpty() &&
+        (state.providerName != providerName || state.novelUrl != novelUrl)
+    ) {
+        return state
+    }
+    return when (result) {
+        is CommentLoadResult.Success -> state.copy(
+            providerName = providerName,
+            novelUrl = novelUrl,
+            comments = result.page.comments,
+            hasMore = result.page.hasMore,
+            isInitialLoading = false,
+            isLoadingMore = false,
+            loadErrorRes = null,
+        )
+
+        CommentLoadResult.NetworkError -> state.copy(
+            providerName = providerName,
+            novelUrl = novelUrl,
+            isInitialLoading = false,
+            isLoadingMore = false,
+            loadErrorRes = R.string.novel_comments_load_network_error,
+        )
+
+        CommentLoadResult.ServiceUnavailable -> state.copy(
+            providerName = providerName,
+            novelUrl = novelUrl,
+            isInitialLoading = false,
+            isLoadingMore = false,
+            loadErrorRes = R.string.novel_comments_service_unavailable,
+        )
     }
 }
 

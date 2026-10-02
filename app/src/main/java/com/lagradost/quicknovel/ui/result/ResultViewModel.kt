@@ -45,6 +45,7 @@ import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.auth.SupabaseAuth
 import com.lagradost.quicknovel.comments.CommentDeleteResult
 import com.lagradost.quicknovel.comments.CommentLoadResult
+import com.lagradost.quicknovel.comments.CommentReportResult
 import com.lagradost.quicknovel.comments.CommentWriteResult
 import com.lagradost.quicknovel.comments.NovelComment
 import com.lagradost.quicknovel.comments.NovelCommentsApi
@@ -63,6 +64,10 @@ import com.lagradost.quicknovel.ui.download.SortingMethod
 import com.lagradost.quicknovel.util.Apis
 import com.lagradost.quicknovel.util.Coroutines.ioSafe
 import com.lagradost.quicknovel.util.ResultCached
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -847,17 +852,15 @@ class ResultViewModel : ViewModel() {
         }
     }
 
-    val commentsState: MutableLiveData<ResultCommentsUiState> =
-        MutableLiveData(ResultCommentsUiState())
+    private val _commentsState = MutableStateFlow(ResultCommentsUiState())
+    val commentsState: StateFlow<ResultCommentsUiState> = _commentsState.asStateFlow()
 
     private val commentsMutex = Mutex()
 
-    private fun currentCommentsState(): ResultCommentsUiState =
-        commentsState.value ?: ResultCommentsUiState()
+    private fun currentCommentsState(): ResultCommentsUiState = _commentsState.value
 
     private fun updateCommentsState(transform: (ResultCommentsUiState) -> ResultCommentsUiState) {
-        val next = transform(currentCommentsState())
-        commentsState.postValue(next)
+        _commentsState.update(transform)
     }
 
     fun ensureCommunityCommentsLoaded(rawProviderName: String, rawNovelUrl: String) {
@@ -865,22 +868,27 @@ class ResultViewModel : ViewModel() {
         val cleanUrl = NovelCommentsApi.canonicalNovelUrl(rawNovelUrl)
         if (cleanProvider.isEmpty() || cleanUrl.isEmpty()) return
 
-        val current = currentCommentsState()
-        val sameNovel = current.providerName == cleanProvider && current.novelUrl == cleanUrl
-        if (sameNovel && (current.isInitialLoading || current.comments.isNotEmpty() || current.loadErrorRes != null)) {
-            return
+        var shouldRefresh = false
+        updateCommentsState { current ->
+            val sameNovel = current.providerName == cleanProvider && current.novelUrl == cleanUrl
+            if (sameNovel && (current.isInitialLoading || current.comments.isNotEmpty() || current.loadErrorRes != null)) {
+                current
+            } else {
+                shouldRefresh = true
+                if (sameNovel) {
+                    current.copy(isInitialLoading = true, loadErrorRes = null)
+                } else {
+                    ResultCommentsUiState(
+                        providerName = cleanProvider,
+                        novelUrl = cleanUrl,
+                        isInitialLoading = true,
+                    )
+                }
+            }
         }
-
-        commentsState.value = if (sameNovel) {
-            current.copy(isInitialLoading = true, loadErrorRes = null)
-        } else {
-            ResultCommentsUiState(
-                providerName = cleanProvider,
-                novelUrl = cleanUrl,
-                isInitialLoading = true,
-            )
+        if (shouldRefresh) {
+            refreshCommunityComments(cleanProvider, cleanUrl)
         }
-        refreshCommunityComments(cleanProvider, cleanUrl)
     }
 
     fun retryLoadCommunityComments() {
@@ -904,46 +912,20 @@ class ResultViewModel : ViewModel() {
                         loadErrorRes = null,
                     )
                 }
-                when (
-                    val result = NovelCommentsApi.fetchComments(
-                        context = ctx,
+                val result = NovelCommentsApi.fetchComments(
+                    context = ctx,
+                    providerName = providerName,
+                    novelUrl = novelUrl,
+                    offset = 0,
+                    limit = NovelCommentsApi.PAGE_SIZE,
+                )
+                updateCommentsState { state ->
+                    applyInitialLoadCompletion(
+                        state = state,
                         providerName = providerName,
                         novelUrl = novelUrl,
-                        offset = 0,
-                        limit = NovelCommentsApi.PAGE_SIZE,
+                        result = result,
                     )
-                ) {
-                    is CommentLoadResult.Success -> {
-                        updateCommentsState { state ->
-                            state.copy(
-                                comments = result.page.comments,
-                                hasMore = result.page.hasMore,
-                                isInitialLoading = false,
-                                isLoadingMore = false,
-                                loadErrorRes = null,
-                            )
-                        }
-                    }
-
-                    CommentLoadResult.NetworkError -> {
-                        updateCommentsState { state ->
-                            state.copy(
-                                isInitialLoading = false,
-                                isLoadingMore = false,
-                                loadErrorRes = R.string.novel_comments_load_network_error,
-                            )
-                        }
-                    }
-
-                    CommentLoadResult.ServiceUnavailable -> {
-                        updateCommentsState { state ->
-                            state.copy(
-                                isInitialLoading = false,
-                                isLoadingMore = false,
-                                loadErrorRes = R.string.novel_comments_service_unavailable,
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -1007,60 +989,56 @@ class ResultViewModel : ViewModel() {
     }
 
     fun updateDraftRating(rating: Int) {
-        val clamped = rating.coerceIn(0, NovelCommentsApi.MAX_RATING)
-        val current = currentCommentsState()
-        val clearValidation = current.formStatusRes == R.string.novel_comments_validation_error &&
-            NovelCommentsApi.isValidSubmission(clamped, current.draftComment)
-        commentsState.value = current.copy(
-            draftRating = clamped,
-            formStatusRes = if (clearValidation) null else current.formStatusRes,
-        )
+        updateCommentsState { state ->
+            applyDraftRatingUpdate(state, rating)
+        }
     }
 
     fun updateDraftComment(text: String) {
-        val current = currentCommentsState()
-        if (current.draftComment == text) return
-        val clearValidation = current.formStatusRes == R.string.novel_comments_validation_error &&
-            NovelCommentsApi.isValidSubmission(current.draftRating, text)
-        commentsState.value = current.copy(
-            draftComment = text,
-            formStatusRes = if (clearValidation) null else current.formStatusRes,
-        )
+        updateCommentsState { state ->
+            applyDraftCommentUpdate(state, text)
+        }
     }
 
     fun startEditingComment(comment: NovelComment, onRequireSignIn: () -> Unit) {
         val ctx = context ?: return
         val currentUserId = SupabaseAuth.currentUserId(ctx)
         if (!SupabaseAuth.isLoggedIn(ctx) || currentUserId.isNullOrBlank()) {
-            commentsState.value = currentCommentsState().copy(
-                draftRating = comment.rating,
-                draftComment = comment.comment,
-                isEditingExisting = true,
-                formStatusRes = R.string.novel_comments_sign_in_required,
-                formStatusIsError = true,
-            )
+            updateCommentsState { state ->
+                state.copy(
+                    draftRating = comment.rating,
+                    draftComment = comment.comment,
+                    isEditingExisting = true,
+                    formStatusRes = R.string.novel_comments_sign_in_required,
+                    formStatusIsError = true,
+                )
+            }
             onRequireSignIn()
             return
         }
         if (!NovelCommentsApi.canModifyComment(comment, currentUserId)) return
 
-        commentsState.value = currentCommentsState().copy(
-            draftRating = comment.rating,
-            draftComment = comment.comment,
-            isEditingExisting = true,
-            formStatusRes = null,
-            formStatusIsError = false,
-        )
+        updateCommentsState { state ->
+            state.copy(
+                draftRating = comment.rating,
+                draftComment = comment.comment,
+                isEditingExisting = true,
+                formStatusRes = null,
+                formStatusIsError = false,
+            )
+        }
     }
 
     fun cancelEditingComment() {
-        commentsState.value = currentCommentsState().copy(
-            draftRating = 0,
-            draftComment = "",
-            isEditingExisting = false,
-            formStatusRes = null,
-            formStatusIsError = false,
-        )
+        updateCommentsState { state ->
+            state.copy(
+                draftRating = 0,
+                draftComment = "",
+                isEditingExisting = false,
+                formStatusRes = null,
+                formStatusIsError = false,
+            )
+        }
     }
 
     fun submitCommunityComment(onRequireSignIn: () -> Unit) = viewModelScope.launch {
@@ -1069,19 +1047,23 @@ class ResultViewModel : ViewModel() {
         if (current.isSubmitting) return@launch
 
         if (!SupabaseAuth.isLoggedIn(ctx)) {
-            commentsState.value = current.copy(
-                formStatusRes = R.string.novel_comments_sign_in_required,
-                formStatusIsError = true,
-            )
+            updateCommentsState { state ->
+                state.copy(
+                    formStatusRes = R.string.novel_comments_sign_in_required,
+                    formStatusIsError = true,
+                )
+            }
             onRequireSignIn()
             return@launch
         }
 
         if (!NovelCommentsApi.isValidSubmission(current.draftRating, current.draftComment)) {
-            commentsState.value = current.copy(
-                formStatusRes = R.string.novel_comments_validation_error,
-                formStatusIsError = true,
-            )
+            updateCommentsState { state ->
+                state.copy(
+                    formStatusRes = R.string.novel_comments_validation_error,
+                    formStatusIsError = true,
+                )
+            }
             return@launch
         }
 
@@ -1141,6 +1123,16 @@ class ResultViewModel : ViewModel() {
                     it.copy(
                         isSubmitting = false,
                         formStatusRes = R.string.novel_comments_validation_error,
+                        formStatusIsError = true,
+                    )
+                }
+            }
+
+            CommentWriteResult.DailyLimitReached -> {
+                updateCommentsState {
+                    it.copy(
+                        isSubmitting = false,
+                        formStatusRes = R.string.novel_comments_daily_limit,
                         formStatusIsError = true,
                     )
                 }
@@ -1264,6 +1256,75 @@ class ResultViewModel : ViewModel() {
                         it.copy(
                             isSubmitting = false,
                             formStatusRes = R.string.novel_comments_service_unavailable,
+                            formStatusIsError = true,
+                        )
+                    }
+                }
+            }
+        }
+
+    fun reportCommunityComment(comment: NovelComment, onRequireSignIn: () -> Unit) =
+        viewModelScope.launch {
+            val ctx = context ?: return@launch
+            val current = currentCommentsState()
+            if (current.isSubmitting) return@launch
+
+            val currentUserId = SupabaseAuth.currentUserId(ctx)
+            if (!SupabaseAuth.isLoggedIn(ctx) || currentUserId.isNullOrBlank()) {
+                updateCommentsState {
+                    it.copy(
+                        formStatusRes = R.string.novel_comments_sign_in_required,
+                        formStatusIsError = true,
+                    )
+                }
+                onRequireSignIn()
+                return@launch
+            }
+            if (NovelCommentsApi.canModifyComment(comment, currentUserId)) return@launch
+
+            when (NovelCommentsApi.reportComment(ctx, comment.id)) {
+                CommentReportResult.Success -> {
+                    updateCommentsState {
+                        it.copy(
+                            formStatusRes = R.string.novel_comments_reported_success,
+                            formStatusIsError = false,
+                        )
+                    }
+                }
+
+                CommentReportResult.AlreadyReported -> {
+                    updateCommentsState {
+                        it.copy(
+                            formStatusRes = R.string.novel_comments_already_reported,
+                            formStatusIsError = true,
+                        )
+                    }
+                }
+
+                CommentReportResult.NotSignedIn -> {
+                    updateCommentsState {
+                        it.copy(
+                            formStatusRes = R.string.novel_comments_sign_in_required,
+                            formStatusIsError = true,
+                        )
+                    }
+                    onRequireSignIn()
+                }
+
+                CommentReportResult.SessionExpired -> {
+                    updateCommentsState {
+                        it.copy(
+                            formStatusRes = R.string.novel_comments_session_expired,
+                            formStatusIsError = true,
+                        )
+                    }
+                    onRequireSignIn()
+                }
+
+                CommentReportResult.Failure -> {
+                    updateCommentsState {
+                        it.copy(
+                            formStatusRes = R.string.novel_comments_report_error,
                             formStatusIsError = true,
                         )
                     }
