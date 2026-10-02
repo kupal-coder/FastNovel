@@ -1,6 +1,7 @@
 package com.lagradost.quicknovel.util
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.preference.PreferenceManager
 import com.lagradost.quicknovel.APIRepository
@@ -172,6 +173,27 @@ class Apis {
             if (name == RedditProvider().name) return APIRepository(RedditProvider())
             return null
         }
+
+        /**
+         * Resolves the provider from a stored novel url instead of its name.
+         *
+         * A novel that was restored from the account sync only carries the provider name it was
+         * saved with; providers get renamed or replaced between versions while the site stays the
+         * same, so the url is the more reliable of the two. Returns null when no provider in this
+         * version points at that host.
+         */
+        fun getApiFromUrlOrNull(url: String): APIRepository? {
+            val host = hostOf(url) ?: return null
+            for (a in apis) {
+                if (hostOf(a.mainUrl) == host) {
+                    return APIRepository(a)
+                }
+            }
+            return null
+        }
+
+        private fun hostOf(url: String): String? =
+            Uri.parse(url).host?.lowercase()?.removePrefix("www.")
 
         fun printProviders() {
             /*

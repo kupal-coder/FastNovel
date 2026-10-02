@@ -44,6 +44,7 @@ import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.mvvm.Resource
 import com.lagradost.quicknovel.mvvm.launchSafe
+import com.lagradost.quicknovel.mvvm.logError
 import com.lagradost.quicknovel.ui.ReadType
 import com.lagradost.quicknovel.ui.common.ImmutableSearchResponse
 import com.lagradost.quicknovel.ui.download.CHAPTER_SORT
@@ -802,11 +803,26 @@ class ResultViewModel : ViewModel() {
 
         loadMutex.withLock {
             this@ResultViewModel.apiName = apiName
-            repo = Apis.getApiFromNameOrNull(apiName)
+            // A novel restored from the account sync only stores the provider name it was saved
+            // with; if that provider was renamed or removed since, the stored url still points at
+            // the right provider.
+            repo = Apis.getApiFromNameOrNull(apiName) ?: Apis.getApiFromUrlOrNull(url)
             loadUrl = url
         }
 
-        val data = repo?.load(url)
+        val api = repo
+        val data: Resource<LoadResponse> = if (api == null || url.isBlank()) {
+            // Never leave the screen on the spinner forever, the error view has the retry button.
+            val error = ErrorLoadingException("Unknown provider: $apiName")
+            logError(error)
+            Resource.Failure(
+                error,
+                context?.getString(R.string.provider_missing) ?: apiName
+            )
+        } else {
+            api.load(url)
+        }
+
         loadMutex.withLock {
             when (data) {
                 is Resource.Success -> {
