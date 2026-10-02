@@ -86,7 +86,10 @@ object DiscoverApi {
 
     internal fun feedPath(offset: Int, tag: String?): String {
         val filter = normalizeDiscoverTags(listOfNotNull(tag)).firstOrNull()
-        val query = filter?.let { "&tags=" + encode("cs.{\"$it\"}") }.orEmpty()
+        val query = filter?.let {
+            // Backslashes are allowed tags, but must be escaped inside a Postgres array literal.
+            "&tags=" + encode("cs.{\"${it.replace("\\", "\\\\")}\"}")
+        }.orEmpty()
         return "/rest/v1/discover_posts?select=*&order=created_at.desc&limit=$PAGE_SIZE" +
                 "&offset=${offset.coerceAtLeast(0)}$query"
     }

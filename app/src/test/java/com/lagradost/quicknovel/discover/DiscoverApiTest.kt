@@ -48,6 +48,8 @@ class DiscoverApiTest {
         val path = DiscoverApi.feedPath(40, " {\"Martial,  Arts\"} ")
         assertTrue(path.contains("order=created_at.desc&limit=20&offset=40"))
         assertEquals("cs.{\"martial arts\"}", URLDecoder.decode(path.substringAfter("&tags="), "UTF-8"))
+        val backslash = DiscoverApi.feedPath(0, "sci\\fi")
+        assertEquals("cs.{\"sci\\\\fi\"}", URLDecoder.decode(backslash.substringAfter("&tags="), "UTF-8"))
         assertFalse(path.contains(' '))
         assertFalse(DiscoverApi.feedPath(0, null).contains("&tags="))
         assertFalse(DiscoverApi.feedPath(-10, "{}\",").contains("&tags="))
