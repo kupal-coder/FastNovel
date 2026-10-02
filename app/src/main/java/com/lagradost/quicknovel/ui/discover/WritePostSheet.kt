@@ -129,7 +129,7 @@ fun WritePostSheet(writer: WritePostState, action: (DiscoverAction) -> Unit) {
                             Text(stringResource(R.string.clear))
                         }
                     }
-                    writer.error?.let { Text(stringResource(it.text), color = colors.error) }
+                    writer.error?.let { Text(stringResource(it.text), color = MaterialTheme.colorScheme.error) }
                     Button(enabled = writer.canPost, onClick = { action(DiscoverAction.Post) }, modifier = Modifier.fillMaxWidth()) {
                         if (writer.posting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         Text(stringResource(if (writer.posting) R.string.loading else if (writer.error != null) R.string.discover_retry else R.string.discover_post))

@@ -96,7 +96,7 @@ fun DiscoverScreen(
             text = {
                 Column {
                     Text(stringResource(if (own) R.string.discover_delete_confirm else R.string.discover_report_confirm, post.novelTitle))
-                    state.actionError?.let { Text(stringResource(it.text), color = colors.error) }
+                    state.actionError?.let { Text(stringResource(it.text), color = MaterialTheme.colorScheme.error) }
                     if (state.actionBusy) CircularProgressIndicator(Modifier.padding(top = 12.dp).size(24.dp))
                 }
             },
@@ -123,7 +123,7 @@ fun DiscoverScreen(
         floatingActionButton = {
             if (state.gate == DiscoverGate.Ready) {
                 FloatingActionButton(onClick = { action(DiscoverAction.Write) },
-                    containerColor = colors.primary, contentColor = colors.onPrimary) {
+                    containerColor = colors.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
                     Icon(painterResource(R.drawable.ic_baseline_edit_24), stringResource(R.string.discover_write))
                 }
             }
