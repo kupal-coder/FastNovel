@@ -70,6 +70,70 @@ class ResultTagNavigationTest {
     }
 
     @Test
+    fun providerUsesItsOwnTagValueAndTagMatchPrecedesCategoryMatch() {
+        val target = resolveProviderTagFilter(
+            displayedTag = "Xianxia",
+            providerTags = listOf("Xianxia" to "provider-tag"),
+            mainCategories = listOf("Xianxia" to "provider-category"),
+        )
+
+        assertEquals(ProviderTagFilterType.Tag, target?.type)
+        assertEquals("provider-tag", target?.providerFilterValue)
+    }
+
+    @Test
+    fun exactGenreCategoryMayBeUsedWhenNoProviderTagMatches() {
+        val target = resolveProviderTagFilter(
+            displayedTag = "Xianxia",
+            providerTags = emptyList(),
+            mainCategories = listOf("Xianxia" to "category-xianxia"),
+        )
+
+        assertEquals(ProviderTagFilterType.MainCategory, target?.type)
+        assertEquals("category-xianxia", target?.providerFilterValue)
+    }
+
+    @Test
+    fun unrelatedOrFuzzyCategoryIsNotUsed() {
+        assertNull(
+            resolveProviderTagFilter(
+                displayedTag = "Xianxia",
+                providerTags = emptyList(),
+                mainCategories = listOf("Popular this week" to "popular"),
+            )
+        )
+        assertNull(
+            resolveProviderTagFilter(
+                displayedTag = "Xianxia",
+                providerTags = emptyList(),
+                mainCategories = listOf("Xianxia-like" to "xianxia-like"),
+            )
+        )
+    }
+
+    @Test
+    fun ambiguousTagDoesNotFallThroughToCategory() {
+        assertNull(
+            resolveProviderTagFilter(
+                displayedTag = "Xianxia",
+                providerTags = listOf("Xianxia" to "one", "Xianxia" to "two"),
+                mainCategories = listOf("Xianxia" to "category"),
+            )
+        )
+    }
+
+    @Test
+    fun noEmptyAllFilterIsMatched() {
+        assertNull(
+            resolveProviderTagFilter(
+                displayedTag = "All",
+                providerTags = listOf(" all " to "all-filter"),
+                mainCategories = listOf("All" to "all-category"),
+            )
+        )
+    }
+
+    @Test
     fun missingProviderOrFilterDoesNotCreateNavigationTarget() {
         assertNull(
             resolveDetailTagBrowseTarget(

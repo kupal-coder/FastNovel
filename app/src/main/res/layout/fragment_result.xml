@@ -695,6 +695,11 @@ Translator: Rainbow Turtle" />
                                     android:text="@string/quickstream_novel_text"
                                     app:iconSize="20dp" />
                             </LinearLayout>
+
+                            <androidx.compose.ui.platform.ComposeView
+                                android:id="@+id/community_comments"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content" />
                         </LinearLayout>
 
                         <FrameLayout

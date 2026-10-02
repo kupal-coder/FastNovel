@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -76,7 +77,6 @@ fun SearchScreen(state: HomeViewModelState, action: (HomeAction) -> Unit) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(snapAnimationSpec = null)
     val listState = rememberLazyGridState()
 
-
     val searchAction = remember<(SearchResponseAction) -> Unit>(action) {
         { item ->
             action(HomeAction.ResultAction(item))
@@ -96,7 +96,23 @@ fun SearchScreen(state: HomeViewModelState, action: (HomeAction) -> Unit) {
         topBar = {
             BaseSearchBar(
                 content = {
-                    Spacer(modifier = Modifier.height(5.dp))
+                    val tagRequest = state.tagSearchRequest
+                    if (tagRequest == null) {
+                        Spacer(modifier = Modifier.height(5.dp))
+                    } else {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Text(
+                                text = stringResource(R.string.tag_search_results_for, tagRequest.label),
+                                color = colors.onBackground,
+                                fontSize = 14.sp,
+                            )
+                            Text(
+                                text = stringResource(R.string.tag_search_origin_provider, tagRequest.sourceProviderName),
+                                color = colors.onSurfaceVariant,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
                 },
                 onQueryChange = { _ ->
                 },
@@ -155,8 +171,66 @@ fun SearchScreen(state: HomeViewModelState, action: (HomeAction) -> Unit) {
                         top = innerPadding.calculateTopPadding()
                     ),
             ) {
-                items(state.searchRows, key = { item -> item.name }) { row ->
-                    SearchRow(row, action)
+                val tagRequest = state.tagSearchRequest
+                if (tagRequest != null) {
+                    val rows = state.searchRows
+                    val allProvidersFailed = rows.isNotEmpty() && rows.all {
+                        it.tagFailed && it.items.isEmpty() && !it.tagLoading
+                    }
+                    val noResults = !state.isLoading && rows.isNotEmpty() && rows.all {
+                        it.items.isEmpty() && !it.tagFailed && !it.tagLoading
+                    }
+
+                    if (state.tagSearchUnsupported) {
+                        item(key = "tag-unsupported") {
+                            Text(
+                                text = stringResource(R.string.tag_search_unsupported),
+                                color = colors.onBackground,
+                                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    } else {
+                        if (allProvidersFailed) {
+                            item(key = "tag-all-failed") {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.tag_search_all_failed),
+                                        color = colors.onBackground,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                    TextButton(onClick = { action(HomeAction.RefreshTagSearch) }) {
+                                        Text(stringResource(R.string.tag_search_retry_all))
+                                    }
+                                }
+                            }
+                        } else if (noResults) {
+                            item(key = "tag-empty") {
+                                Text(
+                                    text = stringResource(R.string.mainpage_tag_no_results),
+                                    color = colors.onBackground,
+                                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+
+                    items(rows, key = { item -> "tag-provider-${item.name}" }) { row ->
+                        SearchRow(
+                            row = row,
+                            action = action,
+                            isTagSearch = true,
+                            allProvidersFailed = allProvidersFailed,
+                        )
+                    }
+                } else {
+                    items(state.searchRows, key = { item -> item.name }) { row ->
+                        SearchRow(row, action)
+                    }
                 }
             }
         } else {
@@ -271,7 +345,9 @@ private fun SettingsScreenPreview() {
 @Composable
 private fun SearchRow(
     row: SearchRow,
-    action: (HomeAction) -> Unit
+    action: (HomeAction) -> Unit,
+    isTagSearch: Boolean = false,
+    allProvidersFailed: Boolean = false,
 ) {
     val searchAction = remember<(SearchResponseAction) -> Unit>(action) {
         { item ->
@@ -279,14 +355,14 @@ private fun SearchRow(
         }
     }
 
-    Column {
+    Column(modifier = if (isTagSearch) Modifier.fillMaxWidth().padding(bottom = 4.dp) else Modifier) {
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp)
-                .clickable(onClick = {
+                .clickable(enabled = !isTagSearch || row.items.isNotEmpty(), onClick = {
                     action(HomeAction.OpenRow(row))
                 })
         ) {
@@ -296,13 +372,16 @@ private fun SearchRow(
                 color = colors.onBackground,
                 fontSize = 20.sp
             )
-            Icon(
-                modifier = Modifier.padding(10.dp),
-                painter = painterResource(R.drawable.ic_baseline_arrow_forward_24),
-                contentDescription = null,
-                tint = colors.onBackground
-            )
+            if (!isTagSearch || row.items.isNotEmpty()) {
+                Icon(
+                    modifier = Modifier.padding(10.dp),
+                    painter = painterResource(R.drawable.ic_baseline_arrow_forward_24),
+                    contentDescription = null,
+                    tint = colors.onBackground
+                )
+            }
         }
+
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             contentPadding = PaddingValues(horizontal = 10.dp)
@@ -313,6 +392,31 @@ private fun SearchRow(
                     action = searchAction,
                     modifier = Modifier.width(120.dp)
                 )
+            }
+            if (isTagSearch && row.tagLoading) {
+                item(key = "${row.name}-tag-loading") {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(16.dp).size(24.dp),
+                        color = colors.onBackground,
+                    )
+                }
+            } else if (isTagSearch && row.tagFailed) {
+                item(key = "${row.name}-tag-retry") {
+                    TextButton(onClick = { action(HomeAction.RetryTagProvider(row.name)) }) {
+                        Text(
+                            stringResource(
+                                if (allProvidersFailed) R.string.tag_search_retry
+                                else R.string.tag_search_provider_retry
+                            )
+                        )
+                    }
+                }
+            } else if (isTagSearch && row.tagHasMore) {
+                item(key = "${row.name}-tag-more") {
+                    TextButton(onClick = { action(HomeAction.LoadMoreTagProvider(row.name)) }) {
+                        Text(stringResource(R.string.tag_search_load_more))
+                    }
+                }
             }
         }
     }

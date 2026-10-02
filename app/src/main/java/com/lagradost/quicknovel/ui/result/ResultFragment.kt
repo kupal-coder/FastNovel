@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.LinearLayout
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.appcompat.app.AlertDialog
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.doOnNextLayout
@@ -23,12 +25,12 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipDrawable
 import com.google.android.material.tabs.TabLayout
 import com.lagradost.quicknovel.CommonActivity
-import com.lagradost.quicknovel.CommonActivity.showToast
 import com.lagradost.quicknovel.DownloadState
 import com.lagradost.quicknovel.LoadResponse
 import com.lagradost.quicknovel.MainActivity.Companion.navigate
 import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.StreamResponse
+import com.lagradost.quicknovel.fixUrl
 import com.lagradost.quicknovel.databinding.ChapterDialogBinding
 import com.lagradost.quicknovel.databinding.ChapterFilterPopupBinding
 import com.lagradost.quicknovel.databinding.FragmentResultBinding
@@ -40,7 +42,7 @@ import com.lagradost.quicknovel.ui.BaseFragment
 import com.lagradost.quicknovel.ui.ReadType
 import com.lagradost.quicknovel.ui.SortingMethodAdapter
 import com.lagradost.quicknovel.ui.mainpage.MainAdapter
-import com.lagradost.quicknovel.ui.mainpage.MainPageFragment
+import com.lagradost.quicknovel.ui.search.SearchFragment
 import com.lagradost.quicknovel.ui.setRecycledViewPool
 import com.lagradost.quicknovel.util.SettingsHelper.getRating
 import com.lagradost.quicknovel.util.SingleSelectionHelper.showBottomDialog
@@ -174,6 +176,12 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
 
             is Resource.Success -> {
                 val res = loadResponse.value
+                binding.communityComments.setContent {
+                    NovelCommentsHost(
+                        providerName = res.apiName,
+                        novelUrl = repo?.api?.fixUrl(res.url) ?: res.url,
+                    )
+                }
 
                 binding.apply {
                     downloadWarning.isVisible = (repo?.rateLimitTime ?: 0) > 2000
@@ -273,24 +281,14 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
                                 chip.isFocusable = true
                                 chip.isClickable = true
                                 chip.setOnClickListener {
-                                    val target = resolveDetailTagBrowseTarget(
-                                        apiName = api?.takeIf { it.hasMainPage }?.name,
-                                        displayedTag = tag,
-                                        providerTags = api?.tags.orEmpty(),
-                                        novelUrl = res.url,
-                                    )
-                                    if (target == null) {
-                                        showToast(R.string.tag_browse_unsupported)
-                                    } else {
-                                        activity?.navigate(
-                                            R.id.global_to_navigation_mainpage,
-                                            MainPageFragment.newInstance(
-                                                target.apiName,
-                                                tag = target.tagIndex,
-                                                excludeNovelUrl = target.novelUrl,
-                                            )
+                                    activity?.navigate(
+                                        R.id.global_to_navigation_search,
+                                        SearchFragment.newTagSearch(
+                                            label = tag,
+                                            providerName = api?.api?.name ?: viewModel.apiName,
+                                            novelUrl = api?.api?.fixUrl(res.url) ?: res.url,
                                         )
-                                    }
+                                    )
                                 }
 
                                 chip.setTextColor(context.colorFromAttribute(R.attr.textColor))
@@ -482,6 +480,9 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
     }
 
     override fun onBindingCreated(binding: FragmentResultBinding, savedInstanceState: Bundle?) {
+        binding.communityComments.setViewCompositionStrategy(
+            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+        )
         val url = savedInstanceState?.getString("url") ?: arguments?.getString("url")
         ?: throw NotImplementedError()
         val apiName = savedInstanceState?.getString("apiName") ?: arguments?.getString("apiName")

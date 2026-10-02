@@ -77,6 +77,24 @@
     </action>
 
     <action
+            android:id="@+id/global_to_navigation_search"
+            app:destination="@id/navigation_search"
+            app:enterAnim="@anim/enter_anim"
+            app:exitAnim="@anim/exit_anim"
+            app:popEnterAnim="@anim/enter_anim"
+            app:popExitAnim="@anim/exit_anim">
+        <argument
+                android:name="tagSearchLabel"
+                app:argType="string" />
+        <argument
+                android:name="tagSearchProvider"
+                app:argType="string" />
+        <argument
+                android:name="tagSearchNovelUrl"
+                app:argType="string" />
+    </action>
+
+    <action
             android:id="@+id/global_to_navigation_mainpage"
             app:destination="@id/navigation_mainpage"
             app:enterAnim="@anim/enter_anim"
