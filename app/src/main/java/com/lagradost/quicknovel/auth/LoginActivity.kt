@@ -77,6 +77,7 @@ class LoginActivity : ComponentActivity() {
                         oauthUri = oauthUri.value,
                         onOAuthConsumed = { oauthUri.value = null },
                         onAuthenticated = {
+                            setResult(android.app.Activity.RESULT_OK)
                             // After a sign in the new session can pick up any left over progress
                             // and the library of the account.
                             ReadingStats.flushAsync(this@LoginActivity)

@@ -6,11 +6,15 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.fragment.findNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lagradost.quicknovel.CommonActivity
 import com.lagradost.quicknovel.MainActivity.Companion.navigate
@@ -28,6 +32,19 @@ import kotlinx.collections.immutable.toPersistentSet
 
 
 class SearchFragment : Fragment() {
+    companion object {
+        private const val ARG_TAG_LABEL = "tagSearchLabel"
+        private const val ARG_TAG_PROVIDER = "tagSearchProvider"
+        private const val ARG_TAG_NOVEL_URL = "tagSearchNovelUrl"
+
+        fun newTagSearch(label: String, providerName: String, novelUrl: String): Bundle =
+            Bundle().apply {
+                putString(ARG_TAG_LABEL, label)
+                putString(ARG_TAG_PROVIDER, providerName)
+                putString(ARG_TAG_NOVEL_URL, novelUrl)
+            }
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -47,13 +64,35 @@ class SearchFragment : Fragment() {
 
                 val store = AndroidPreferenceStore(context)
                 val selectionState by store.searchProvidersList().collectAsState()
-                LaunchedEffect(selectionState) {
-                    viewModel.onAction(HomeAction.ConfigureApisNames(selectionState.toPersistentSet()))
-                }
-
                 val selectionLangState by store.searchLangList().collectAsState()
-                LaunchedEffect(selectionLangState) {
-                    viewModel.onAction(HomeAction.ConfigureApisLanguages(selectionLangState.toPersistentSet()))
+                val tagLabel = arguments?.getString(ARG_TAG_LABEL)
+                val tagRequest = remember(tagLabel, arguments?.getString(ARG_TAG_PROVIDER), arguments?.getString(ARG_TAG_NOVEL_URL)) {
+                    tagLabel?.let { label ->
+                        TagSearchRequest(
+                            label = label,
+                            sourceProviderName = arguments?.getString(ARG_TAG_PROVIDER).orEmpty(),
+                            sourceNovelUrl = arguments?.getString(ARG_TAG_NOVEL_URL).orEmpty(),
+                        )
+                    }
+                }
+                var tagSearchStarted by remember(tagRequest) { mutableStateOf(false) }
+                LaunchedEffect(selectionState, selectionLangState, tagRequest) {
+                    viewModel.onAction(
+                        HomeAction.ConfigureSelection(
+                            names = selectionState.toPersistentSet(),
+                            languages = selectionLangState.toPersistentSet(),
+                        )
+                    )
+                    if (tagRequest != null) {
+                        if (!tagSearchStarted) {
+                            tagSearchStarted = true
+                            viewModel.onAction(HomeAction.SearchTag(tagRequest))
+                        } else if (viewModel.state.value.tagSearchRequest == tagRequest) {
+                            viewModel.onAction(HomeAction.RefreshTagSearch)
+                        }
+                    } else if (viewModel.state.value.tagSearchRequest != null) {
+                        viewModel.onAction(HomeAction.ClearTagSearch)
+                    }
                 }
 
                 ObserveEffect(viewModel.effect) { effect ->
@@ -64,6 +103,7 @@ class SearchFragment : Fragment() {
                                 MainPageFragment.newInstance(effect.api, effect.filter)
                             )
                         }
+                        HomeEffect.NavigateBack -> findNavController().popBackStack()
                     }
                 }
 
