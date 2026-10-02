@@ -137,7 +137,7 @@ class ResultTagNavigationTest {
 
         val syosetuReq = buildDetailTagMainPageRequest(syosetu, syosetuTarget!!)
         assertEquals("306", syosetuReq.mainCategory)
-        assertEquals("new", syosetuReq.orderBy)
+        assertEquals("total", syosetuReq.orderBy)
         assertNull(syosetuReq.tag)
     }
 
@@ -179,7 +179,7 @@ class ResultTagNavigationTest {
         val resolved = resolveEnabledProviderTagTargets(
             apis = listOf(wtrLab, novelBin, syosetu, lnt),
             enabledProviderNames = setOf(wtrLab.name, novelBin.name, syosetu.name, lnt.name),
-            enabledLanguages = setOf("en", "jp"),
+            enabledLanguages = setOf("en", "ja"),
             rawTagLabel = "Action",
             prioritizeApiName = novelBin.name,
         )

@@ -75,6 +75,10 @@ private val NON_GENRE_FILTER_LABELS = UNFILTERED_TAG_LABELS + setOf(
     "date added",
     "latest",
     "latest release",
+    "last updated",
+    "recently added",
+    "top (most viewed)",
+    "most chapters",
     "hot",
     "hot novel",
     "new",
@@ -82,7 +86,13 @@ private val NON_GENRE_FILTER_LABELS = UNFILTERED_TAG_LABELS + setOf(
     "top rated",
     "most commented",
     "most liked",
+    "most recent",
     "all time",
+    "daily",
+    "weekly",
+    "monthly",
+    "quarterly",
+    "yearly",
 )
 
 private val NON_GENRE_MAIN_CATEGORY_PROVIDERS = setOf(
