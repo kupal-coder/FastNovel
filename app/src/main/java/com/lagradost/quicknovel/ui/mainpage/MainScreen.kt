@@ -152,8 +152,13 @@ fun MainPageScreen(state: MainPageState, action: (MainPageAction) -> Unit) {
             R.string.no_data
         }
     )
-    val waitingForExcludedNovelPage = !state.openQuery && items.isEmpty() &&
-        state.filter.query.page > 0 && state.filter.hasMore
+    val waitingForExcludedNovelPage = shouldWaitForExcludedNovelPage(
+        openQuery = state.openQuery,
+        hasItems = items.isNotEmpty(),
+        page = state.filter.query.page,
+        hasMore = state.filter.hasMore,
+        hasError = state.filter.error != null,
+    )
 
     Scaffold(
         topBar = {

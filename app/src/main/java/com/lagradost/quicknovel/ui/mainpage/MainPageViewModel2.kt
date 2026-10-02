@@ -60,6 +60,14 @@ data class FilterState(
     val hasMore: Boolean = true,
 )
 
+internal fun shouldWaitForExcludedNovelPage(
+    openQuery: Boolean,
+    hasItems: Boolean,
+    page: Int,
+    hasMore: Boolean,
+    hasError: Boolean,
+): Boolean = !openQuery && !hasItems && page > 0 && hasMore && !hasError
+
 @Immutable
 data class FilterQueryVisual(
     val category: String? = null,
