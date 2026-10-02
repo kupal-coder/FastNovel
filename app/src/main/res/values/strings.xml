@@ -83,6 +83,9 @@
     <string name="browse_list_icon">Icon</string>
     <string name="home_title_text">Explore</string>
     <string name="mainpage_filter">Filter</string>
+    <string name="mainpage_clear_tag">Clear tag</string>
+    <string name="mainpage_tag_no_results">No novels found for this tag.</string>
+    <string name="tag_browse_unsupported">This tag can’t be browsed with this provider.</string>
     <string name="shadow_descript">Shadow</string>
     <string name="user_image_avatar">Avatar</string>
     <string name="change_providers_descript">Change Provider</string>
