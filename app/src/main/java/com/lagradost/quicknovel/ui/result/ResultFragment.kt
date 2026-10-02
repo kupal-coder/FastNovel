@@ -3,21 +3,30 @@ package com.lagradost.quicknovel.ui.result
 import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.content.DialogInterface
+import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import android.widget.ImageView
 import android.widget.LinearLayout
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.doOnNextLayout
 import androidx.core.view.isVisible
 import androidx.core.view.postDelayed
+import androidx.core.widget. ImageViewCompat
 import androidx.core.widget.NestedScrollView
 import androidx.core.widget.doOnTextChanged
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
+import kotlinx.coroutines.launch
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipDrawable
@@ -29,9 +38,14 @@ import com.lagradost.quicknovel.LoadResponse
 import com.lagradost.quicknovel.MainActivity.Companion.navigate
 import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.StreamResponse
+import com.lagradost.quicknovel.auth.LoginActivity
+import com.lagradost.quicknovel.auth.SupabaseAuth
+import com.lagradost.quicknovel.comments.NovelComment
+import com.lagradost.quicknovel.comments.NovelCommentsApi
 import com.lagradost.quicknovel.databinding.ChapterDialogBinding
 import com.lagradost.quicknovel.databinding.ChapterFilterPopupBinding
 import com.lagradost.quicknovel.databinding.FragmentResultBinding
+import com.lagradost.quicknovel.databinding.ItemNovelCommentBinding
 import com.lagradost.quicknovel.mvvm.Resource
 import com.lagradost.quicknovel.mvvm.debugException
 import com.lagradost.quicknovel.mvvm.observe
@@ -62,6 +76,23 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
     BindingCreator.Inflate(FragmentResultBinding::inflate)
 ) {
     private val viewModel: ResultViewModel by viewModels()
+    private var isUpdatingCommentInput = false
+
+    private val loginLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        binding?.let { currentBinding ->
+            renderCommunityCommentsState(
+                currentBinding,
+                viewModel.commentsState.value ?: ResultCommentsUiState()
+            )
+        }
+    }
+
+    private fun launchSignInFlow() {
+        val ctx = context ?: return
+        loginLauncher.launch(Intent(ctx, LoginActivity::class.java))
+    }
 
     companion object {
         fun newInstance(url: String, apiName: String, startAction: Int = 0): Bundle =
@@ -113,6 +144,13 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
         activity?.apply {
             window?.navigationBarColor =
                 colorFromAttribute(R.attr.primaryBlackBackground)
+        }
+
+        binding?.let { currentBinding ->
+            renderCommunityCommentsState(
+                currentBinding,
+                viewModel.commentsState.value
+            )
         }
     }
 
@@ -273,24 +311,14 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
                                 chip.isFocusable = true
                                 chip.isClickable = true
                                 chip.setOnClickListener {
-                                    val target = resolveDetailTagBrowseTarget(
-                                        apiName = api?.takeIf { it.hasMainPage }?.name,
-                                        displayedTag = tag,
-                                        providerTags = api?.tags.orEmpty(),
-                                        novelUrl = res.url,
-                                    )
-                                    if (target == null) {
-                                        showToast(R.string.tag_browse_unsupported)
-                                    } else {
-                                        activity?.navigate(
-                                            R.id.global_to_navigation_mainpage,
-                                            MainPageFragment.newInstance(
-                                                target.apiName,
-                                                tag = target.tagIndex,
-                                                excludeNovelUrl = target.novelUrl,
-                                            )
+                                    activity?.navigate(
+                                        R.id.global_to_navigation_mainpage,
+                                        MainPageFragment.newTagSearchInstance(
+                                            tagLabel = tag,
+                                            sourceApiName = api?.name ?: viewModel.apiName,
+                                            excludeNovelUrl = res.url,
                                         )
-                                    }
+                                    )
                                 }
 
                                 chip.setTextColor(context.colorFromAttribute(R.attr.textColor))
@@ -298,6 +326,11 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
                             }
                         }
                     }
+
+                    viewModel.ensureCommunityCommentsLoaded(
+                        rawProviderName = api?.name ?: viewModel.apiName,
+                        rawNovelUrl = res.url,
+                    )
                     res.synopsis?.let { synopsis ->
                         val syno = if (synopsis.length > MAX_SYNO_LENGH) {
                             synopsis.substring(0, MAX_SYNO_LENGH) + "..."
@@ -870,5 +903,252 @@ class ResultFragment : BaseFragment<FragmentResultBinding>(
                 }
             }
         }
+
+        setupCommunityComments(binding)
+    }
+
+    private fun setupCommunityComments(binding: FragmentResultBinding) {
+        val ratingStars = listOf(
+            binding.commentRatingStar1,
+            binding.commentRatingStar2,
+            binding.commentRatingStar3,
+            binding.commentRatingStar4,
+            binding.commentRatingStar5,
+        )
+        ratingStars.forEachIndexed { index, starView ->
+            val starNumber = index + 1
+            starView.contentDescription =
+                getString(R.string.novel_comments_star_accessibility, starNumber)
+            starView.setOnClickListener {
+                viewModel.updateDraftRating(starNumber)
+            }
+        }
+
+        binding.commentInputEditText.doOnTextChanged { text, _, _, _ ->
+            if (!isUpdatingCommentInput) {
+                viewModel.updateDraftComment(text?.toString().orEmpty())
+            }
+        }
+
+        binding.commentSignInButton.setOnClickListener {
+            launchSignInFlow()
+        }
+
+        binding.commentSubmitButton.setOnClickListener {
+            hideKeyboard()
+            viewModel.submitCommunityComment(::launchSignInFlow)
+        }
+
+        binding.commentCancelEditButton.setOnClickListener {
+            hideKeyboard()
+            viewModel.cancelEditingComment()
+        }
+
+        binding.commentsRetryButton.setOnClickListener {
+            viewModel.retryLoadCommunityComments()
+        }
+
+        binding.commentsLoadMoreButton.setOnClickListener {
+            viewModel.loadMoreCommunityComments()
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.commentsState.collect { state ->
+                    renderCommunityCommentsState(binding, state)
+                }
+            }
+        }
+    }
+
+    private fun renderCommunityCommentsState(
+        binding: FragmentResultBinding,
+        state: ResultCommentsUiState,
+    ) {
+        val ctx = context ?: return
+        val isLoggedIn = SupabaseAuth.isLoggedIn(ctx)
+        val currentUserId = if (isLoggedIn) SupabaseAuth.currentUserId(ctx) else null
+
+        binding.commentSignedOutBanner.isVisible = !isLoggedIn
+
+        val primaryColor = ctx.colorFromAttribute(R.attr.colorPrimary)
+        val inactiveStarColor = ctx.colorFromAttribute(R.attr.grayTextColor)
+        val ratingStars = listOf(
+            binding.commentRatingStar1,
+            binding.commentRatingStar2,
+            binding.commentRatingStar3,
+            binding.commentRatingStar4,
+            binding.commentRatingStar5,
+        )
+        ratingStars.forEachIndexed { index, starView ->
+            val starNumber = index + 1
+            val isSelected = starNumber <= state.draftRating
+            ImageViewCompat.setImageTintList(
+                starView,
+                ColorStateList.valueOf(if (isSelected) primaryColor else inactiveStarColor)
+            )
+            starView.alpha = if (isSelected) 1f else 0.45f
+            starView.isEnabled = !state.isSubmitting
+        }
+
+        binding.commentSelectedRatingLabel.text = if (state.draftRating in 1..5) {
+            getString(R.string.novel_comments_selected_rating_format, state.draftRating)
+        } else {
+            getString(R.string.novel_comments_no_rating_selected)
+        }
+
+        val currentInputText = binding.commentInputEditText.text?.toString().orEmpty()
+        if (currentInputText != state.draftComment) {
+            isUpdatingCommentInput = true
+            binding.commentInputEditText.setText(state.draftComment)
+            binding.commentInputEditText.setSelection(state.draftComment.length)
+            isUpdatingCommentInput = false
+        }
+        binding.commentInputEditText.isEnabled = !state.isSubmitting
+        binding.commentCharCounter.text =
+            getString(R.string.novel_comments_char_count, state.draftComment.trim().length)
+
+        if (state.formStatusRes != null) {
+            binding.commentFormStatusText.isVisible = true
+            binding.commentFormStatusText.setText(state.formStatusRes)
+            binding.commentFormStatusText.setTextColor(
+                if (state.formStatusIsError) {
+                    ctx.colorFromAttribute(R.attr.colorPrimary)
+                } else {
+                    ctx.colorFromAttribute(R.attr.textColor)
+                }
+            )
+        } else {
+            binding.commentFormStatusText.isVisible = false
+        }
+
+        val isUpdatingExisting = state.isEditingExisting || state.findOwnComment(currentUserId) != null
+        binding.commentSubmitButton.setText(
+            if (isUpdatingExisting) R.string.novel_comments_update else R.string.novel_comments_submit
+        )
+        binding.commentSubmitButton.isEnabled = !state.isSubmitting
+        binding.commentCancelEditButton.isVisible = state.isEditingExisting && !state.isSubmitting
+        binding.commentSubmittingProgress.isVisible = state.isSubmitting
+
+        binding.commentsLoadingProgress.isVisible =
+            state.isInitialLoading && state.comments.isEmpty()
+
+        if (state.loadErrorRes != null) {
+            binding.commentsErrorContainer.isVisible = true
+            binding.commentsErrorText.setText(state.loadErrorRes)
+        } else {
+            binding.commentsErrorContainer.isVisible = false
+        }
+
+        binding.commentsEmptyText.isVisible =
+            !state.isInitialLoading && state.loadErrorRes == null && state.comments.isEmpty()
+
+        binding.commentsListContainer.removeAllViews()
+        for (comment in state.comments) {
+            val itemBinding = ItemNovelCommentBinding.inflate(
+                layoutInflater,
+                binding.commentsListContainer,
+                false
+            )
+            bindCommentItem(
+                itemBinding = itemBinding,
+                comment = comment,
+                currentUserId = currentUserId,
+                primaryColor = primaryColor,
+                inactiveStarColor = inactiveStarColor,
+                parentBinding = binding,
+            )
+            binding.commentsListContainer.addView(itemBinding.root)
+        }
+
+        binding.commentsLoadMoreProgress.isVisible = state.isLoadingMore
+        binding.commentsLoadMoreButton.isVisible =
+            state.hasMore && !state.isInitialLoading && !state.isLoadingMore
+    }
+
+    private fun bindCommentItem(
+        itemBinding: ItemNovelCommentBinding,
+        comment: NovelComment,
+        currentUserId: String?,
+        primaryColor: Int,
+        inactiveStarColor: Int,
+        parentBinding: FragmentResultBinding,
+    ) {
+        if (!comment.avatarUrl.isNullOrBlank()) {
+            val loaded = itemBinding.commentItemAvatar.setImage(
+                comment.avatarUrl,
+                errorImageDrawable = R.drawable.monke_eating
+            )
+            if (!loaded) {
+                itemBinding.commentItemAvatar.setImageResource(R.drawable.monke_eating)
+            }
+        } else {
+            itemBinding.commentItemAvatar.setImageResource(R.drawable.monke_eating)
+        }
+
+        itemBinding.commentItemUsername.text = comment.username.ifBlank {
+            getString(R.string.novel_comments_default_username)
+        }
+
+        val isAuthor = NovelCommentsApi.canModifyComment(comment, currentUserId)
+        itemBinding.commentItemAuthorActions.isVisible = isAuthor
+        itemBinding.commentItemReportButton.isVisible = !isAuthor
+        if (isAuthor) {
+            itemBinding.commentItemEditButton.setOnClickListener {
+                viewModel.startEditingComment(comment, ::launchSignInFlow)
+                parentBinding.commentInputEditText.requestFocus()
+            }
+            itemBinding.commentItemDeleteButton.setOnClickListener {
+                confirmDeleteComment(comment)
+            }
+        } else {
+            itemBinding.commentItemReportButton.setOnClickListener {
+                confirmReportComment(comment)
+            }
+        }
+
+        itemBinding.commentItemStarsRow.contentDescription =
+            getString(R.string.novel_comments_rated_accessibility, comment.rating)
+        val itemStars: List<ImageView> = listOf(
+            itemBinding.commentItemStar1,
+            itemBinding.commentItemStar2,
+            itemBinding.commentItemStar3,
+            itemBinding.commentItemStar4,
+            itemBinding.commentItemStar5,
+        )
+        itemStars.forEachIndexed { index, starView ->
+            val filled = index < comment.rating
+            ImageViewCompat.setImageTintList(
+                starView,
+                ColorStateList.valueOf(if (filled) primaryColor else inactiveStarColor)
+            )
+            starView.alpha = if (filled) 1f else 0.35f
+        }
+
+        itemBinding.commentItemBody.text = comment.comment
+    }
+
+    private fun confirmDeleteComment(comment: NovelComment) {
+        val ctx = context ?: return
+        AlertDialog.Builder(ctx, R.style.AlertDialogCustom)
+            .setTitle(R.string.novel_comments_delete_confirm_title)
+            .setMessage(R.string.novel_comments_delete_confirm_message)
+            .setPositiveButton(R.string.novel_comments_delete) { _, _ ->
+                viewModel.deleteCommunityComment(comment, ::launchSignInFlow)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmReportComment(comment: NovelComment) {
+        val ctx = context ?: return
+        AlertDialog.Builder(ctx, R.style.AlertDialogCustom)
+            .setTitle(R.string.novel_comments_report_confirm_title)
+            .setMessage(R.string.novel_comments_report_confirm_message)
+            .setPositiveButton(R.string.novel_comments_report) { _, _ ->
+                viewModel.reportCommunityComment(comment, ::launchSignInFlow)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 }
