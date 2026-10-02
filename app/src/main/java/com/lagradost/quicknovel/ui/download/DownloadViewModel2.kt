@@ -24,6 +24,7 @@ import com.lagradost.quicknovel.DownloadProgressState
 import com.lagradost.quicknovel.DownloadState
 import com.lagradost.quicknovel.RESULT_BOOKMARK
 import com.lagradost.quicknovel.RESULT_BOOKMARK_STATE
+import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.compose.ActionHandler
 import com.lagradost.quicknovel.compose.DebounceQuery
 import com.lagradost.quicknovel.compose.DefaultStateContainer
@@ -312,6 +313,7 @@ class DownloadViewModel2 : ViewModel(), ActionHandler<DownloadPageAction>,
                         action.response.apiName
                     )
                 } else {
+                    LibrarySync.onItemRemoved(id)
                     removeKey(RESULT_BOOKMARK, id.toString())
                     removeKey(RESULT_BOOKMARK_STATE, id.toString())
 
