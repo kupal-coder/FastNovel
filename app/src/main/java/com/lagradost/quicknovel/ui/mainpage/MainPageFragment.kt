@@ -4,21 +4,34 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lagradost.quicknovel.compose.CloudStreamTheme
 import com.lagradost.quicknovel.compose.ObserveEffect
 import com.lagradost.quicknovel.compose.loadPrimaryColor
 import com.lagradost.quicknovel.compose.loadThemeMode
+import com.lagradost.quicknovel.ui.settings.searchLangList
+import com.lagradost.quicknovel.ui.settings.searchProvidersList
+import com.mihon.common.preference.AndroidPreferenceStore
+import com.mihon.presentation.settings.collectAsState
+import kotlinx.collections.immutable.toPersistentSet
 
 
 class MainPageFragment : Fragment() {
+    private val tagSearchViewModel: TagSearchViewModel by viewModels()
+
     companion object {
+        private const val ARG_TAG_SEARCH_LABEL = "tag_search_label"
+        private const val ARG_SOURCE_API_NAME = "source_api_name"
+        private const val ARG_EXCLUDE_NOVEL_URL = "url"
+
         fun newInstance(
             apiName: String,
             mainCategory: Int? = null,
@@ -38,15 +51,29 @@ class MainPageFragment : Fragment() {
                 if (excludeNovelUrl != null)
                     putString("url", excludeNovelUrl)
             }
+
         fun newInstance(
             apiName: String,
-            filter : FilterQuery,
+            filter: FilterQuery,
         ): Bundle =
             Bundle().apply {
                 putString("apiName", apiName)
                 putInt("mainCategory", filter.category)
                 putInt("orderBy", filter.orderBy)
                 putInt("tag", filter.tag)
+            }
+
+        fun newTagSearchInstance(
+            tagLabel: String,
+            sourceApiName: String? = null,
+            excludeNovelUrl: String? = null,
+        ): Bundle =
+            Bundle().apply {
+                putString(ARG_TAG_SEARCH_LABEL, tagLabel)
+                if (!sourceApiName.isNullOrBlank())
+                    putString(ARG_SOURCE_API_NAME, sourceApiName)
+                if (!excludeNovelUrl.isNullOrBlank())
+                    putString(ARG_EXCLUDE_NOVEL_URL, excludeNovelUrl)
             }
     }
 
@@ -56,6 +83,39 @@ class MainPageFragment : Fragment() {
         savedInstanceState: Bundle?,
     ): View = ComposeView(inflater.context).apply {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+
+        val tagSearchLabel = arguments?.getString(ARG_TAG_SEARCH_LABEL)?.trim().orEmpty()
+        if (tagSearchLabel.isNotEmpty()) {
+            val sourceApiName = arguments?.getString(ARG_SOURCE_API_NAME)
+            val excludeNovelUrl = arguments?.getString(ARG_EXCLUDE_NOVEL_URL)
+            tagSearchViewModel.init(
+                tagLabel = tagSearchLabel,
+                sourceApiName = sourceApiName,
+                excludeNovelUrl = excludeNovelUrl,
+            )
+
+            setContent {
+                val context = LocalContext.current
+                val store = AndroidPreferenceStore(context)
+                val selectionState by store.searchProvidersList().collectAsState()
+                LaunchedEffect(selectionState) {
+                    tagSearchViewModel.configureProviderNames(selectionState.toPersistentSet())
+                }
+
+                val selectionLangState by store.searchLangList().collectAsState()
+                LaunchedEffect(selectionLangState) {
+                    tagSearchViewModel.configureProviderLanguages(selectionLangState.toPersistentSet())
+                }
+
+                CloudStreamTheme(
+                    mode = context.loadThemeMode(),
+                    primaryColor = context.loadPrimaryColor(),
+                ) {
+                    TagSearchScreen(viewModel = tagSearchViewModel)
+                }
+            }
+            return@apply
+        }
 
         setContent {
             val viewModel: MainPageViewModel2 =
@@ -70,9 +130,11 @@ class MainPageFragment : Fragment() {
                 ObserveEffect(viewModel.effect) {
                     // The state-backed screen presents a safe error message and retry action.
                 }
-                MainPageScreen(state,viewModel::onAction)
+                MainPageScreen(state, viewModel::onAction)
             }
         }
+    }
+}
     }
 }
 
