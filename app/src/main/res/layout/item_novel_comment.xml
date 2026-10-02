@@ -34,7 +34,7 @@
                     android:id="@+id/comment_item_avatar"
                     android:layout_width="32dp"
                     android:layout_height="32dp"
-                    android:contentDescription="@string/avatar_img"
+                    android:contentDescription="@string/user_image_avatar"
                     android:scaleType="centerCrop"
                     android:src="@drawable/monke_eating" />
             </com.google.android.material.card.MaterialCardView>

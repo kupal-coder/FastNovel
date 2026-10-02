@@ -949,7 +949,7 @@ Translator: Rainbow Turtle" />
                                         android:minWidth="0dp"
                                         android:paddingStart="16dp"
                                         android:paddingEnd="16dp"
-                                        android:text="@string/retry" />
+                                        android:text="@string/reload_error" />
                                 </LinearLayout>
 
                                 <TextView
