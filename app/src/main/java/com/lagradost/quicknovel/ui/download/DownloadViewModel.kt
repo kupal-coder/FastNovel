@@ -88,6 +88,9 @@ const val REVERSE_LAST_UPDATED_SORT = 10
 const val CHAPTER_SORT = 11
 const val REVERSE_CHAPTER_SORT = 12
 
+/** Bookmark changes that arrive in a batch (library sync) trigger a single reload. */
+private const val BOOKMARK_RELOAD_DEBOUNCE_MS = 150L
+
 @Immutable
 data class SortingMethod(@StringRes val name: Int, val id: Int, val inverse: Int = id)
 class DownloadViewModel : ViewModel() {
@@ -540,9 +543,17 @@ class DownloadViewModel : ViewModel() {
         BookDownloader2.bookmarkChanged -= ::bookmarkChanged
     }
 
-    /** A bookmark was added, removed or restored by the sync, show it without a manual refresh. */
+    /**
+     * A bookmark was added, removed or restored by the sync, show it without a manual refresh.
+     * Restoring a library brings many of these in a row, so the reload is coalesced.
+     */
     private fun bookmarkChanged(id: Int) {
-        loadAllData(false)
+        val scheduled = bookmarkReloadJob
+        if (scheduled != null && scheduled.isActive) return
+        bookmarkReloadJob = viewModelScope.launch {
+            delay(BOOKMARK_RELOAD_DEBOUNCE_MS)
+            loadAllData(false)
+        }
     }
 
     val activeRefreshTabs = mutableSetOf<Int>()
@@ -562,6 +573,9 @@ class DownloadViewModel : ViewModel() {
             }
         }
     }
+
+    /** A batch of bookmark changes is answered by one reload. */
+    private var bookmarkReloadJob: Job? = null
 
     private val cardsDataMutex = Mutex()
     private val cardsData: HashMap<Int, DownloadFragment.DownloadDataLoaded> = hashMapOf()

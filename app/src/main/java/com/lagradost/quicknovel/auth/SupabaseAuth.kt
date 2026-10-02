@@ -272,6 +272,14 @@ object SupabaseAuth {
             }
             ReadingStats.clear(context)
 
+            // Same for the library: upload what is still queued before the session is gone,
+            // otherwise a change made right before signing out would never reach the account.
+            try {
+                LibrarySync.push(context)
+            } catch (_: Exception) {
+                // ignored, the queue is dropped below anyway
+            }
+
             val accessToken = prefs(context).getString(KEY_ACCESS_TOKEN, null)
             if (isConfigured && !accessToken.isNullOrBlank()) {
                 try {
@@ -283,7 +291,8 @@ object SupabaseAuth {
                 }
             }
             clearSession(context)
-            // The library stays on the device, only the sync state is forgotten.
+            // The library stays on the device, only the sync state is forgotten. This runs on an
+            // explicit sign out only, a dead refresh token must not drop the pending queue.
             LibrarySync.clear(context)
         }
     }

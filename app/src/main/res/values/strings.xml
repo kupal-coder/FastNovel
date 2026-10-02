@@ -347,6 +347,7 @@
     <string name="reading_stats_offline">Not available offline</string>
     <string name="library_sync">Library sync</string>
     <string name="library_sync_not_synced">Not synced yet</string>
+    <string name="library_sync_syncing">Syncing…</string>
     <string name="library_sync_last_synced" formatted="true">Last synced %s</string>
     <string name="library_sync_description">Only the list of novels, their category and the reading position is synced. Downloaded chapters stay on this device.</string>
     <string name="library_sync_upload_title">Upload library</string>
