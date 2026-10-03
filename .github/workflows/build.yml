@@ -17,7 +17,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       - run: chmod +x gradlew
-      - name: Build (temporarily logs errors to the PR for diagnosis)
+      - name: Build (temporarily reports errors as annotations for diagnosis)
         id: build
         continue-on-error: true
         shell: bash
@@ -26,23 +26,31 @@ jobs:
           ./gradlew assembleDebug testDebugUnitTest 2>&1 | tee /tmp/build.log
         env:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-      - name: Post failure details to the PR
-        if: steps.build.outcome == 'failure' && github.event_name == 'pull_request'
+      - name: Report failure details as annotations
+        if: steps.build.outcome == 'failure'
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          {
-            echo '### Build failure details (auto-posted, temporary CI debug step)'
-            echo '```'
-            grep -E "^e: |^w: .*(error|Error)|error:|FAILURE:|> Task .*FAILED|Execution failed|Caused by|org.opentest4j|java.lang.AssertionError|[0-9]+ tests? completed.*failed" /tmp/build.log | head -120
-            echo '--- tail ---'
-            tail -n 60 /tmp/build.log
-            echo '```'
-          } > /tmp/report.md
-          head -c 60000 /tmp/report.md > /tmp/report_trim.md
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/report_trim.md
+          set +e
+          cat > /tmp/report.py <<'PYEOF'
+          import re
+          log = open('/tmp/build.log', errors='replace').read()
+
+          def emit(title, text, limit=6000):
+              text = (text or '').strip()[:limit]
+              if not text:
+                  return
+              text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=' + title + '::' + text)
+
+          kotlin = '\n'.join(l for l in log.splitlines() if l.startswith('e: '))
+          emit('kotlin-errors', kotlin)
+          tests = '\n'.join(l for l in log.splitlines()
+                            if ('FAILED' in l and 'Task' not in l) or 'AssertionError' in l)
+          emit('test-failures', tests)
+          m = re.search(r'FAILURE: Build failed.*', log, re.S)
+          emit('gradle-failure', m.group(0) if m else log[-3000:])
+          PYEOF
+          python3 /tmp/report.py
       - name: Fail the job when the build failed
         if: steps.build.outcome == 'failure'
         run: exit 1
