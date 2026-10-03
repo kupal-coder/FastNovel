@@ -64,6 +64,7 @@ import com.lagradost.quicknovel.compose.CloudStreamTheme.colors
 import com.lagradost.quicknovel.compose.RoundedShape
 import com.lagradost.quicknovel.discover.DiscoverError
 import com.lagradost.quicknovel.discover.DiscoverPost
+import com.lagradost.quicknovel.discover.DiscoverSort
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -143,6 +144,15 @@ fun DiscoverScreen(
                 DiscoverGate.Error -> DiscoverErrorView(state.error ?: DiscoverError.Generic,
                     { action(DiscoverAction.Retry) }, signIn, settings)
                 DiscoverGate.Ready -> {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = state.sort == DiscoverSort.Top,
+                            onClick = { action(DiscoverAction.Sort(DiscoverSort.Top)) },
+                            label = { Text(stringResource(R.string.discover_sort_top)) })
+                        FilterChip(selected = state.sort == DiscoverSort.New,
+                            onClick = { action(DiscoverAction.Sort(DiscoverSort.New)) },
+                            label = { Text(stringResource(R.string.discover_sort_new)) })
+                    }
                     LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
                             FilterChip(selected = state.selectedTag == null, onClick = { action(DiscoverAction.Filter(null)) },
@@ -158,7 +168,7 @@ fun DiscoverScreen(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = colors.onSurfaceVariant)
                     }
                     val list = rememberLazyListState()
-                    LaunchedEffect(state.selectedTag) { list.scrollToItem(0) }
+                    LaunchedEffect(state.selectedTag, state.sort) { list.scrollToItem(0) }
                     PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = { action(DiscoverAction.Refresh) },
                         modifier = Modifier.fillMaxSize()) {
                         LazyColumn(state = list, modifier = Modifier.fillMaxSize(),
@@ -231,9 +241,11 @@ private fun DiscoverPostCard(
             }
             // Deliberately plain text: unlike ReviewItem, no HTML or clickable link annotations.
             Text(post.body, style = MaterialTheme.typography.bodyMedium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                VoteControl(score = post.score, myVote = post.myVote,
+                    onVote = { value -> action(DiscoverAction.Vote(post, value)) })
                 Text(post.authorName, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
-                    modifier = Modifier.weight(1f))
+                    modifier = Modifier.weight(1f).padding(start = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(relativeTime(LocalContext.current, post.createdAt, now), style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant)
             }

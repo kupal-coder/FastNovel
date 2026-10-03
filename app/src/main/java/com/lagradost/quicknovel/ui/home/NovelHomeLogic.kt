@@ -1,9 +1,17 @@
 package com.lagradost.quicknovel.ui.home
 
 import com.lagradost.quicknovel.MainAPI
+import com.lagradost.quicknovel.SearchResponse
 import java.util.Locale
+import kotlin.random.Random
 
-/** A category/order pair used by both the home request and its See More destination. */
+/** How many different providers one "Random novels" roll asks, in parallel. */
+internal const val RANDOM_PROVIDERS_PER_ROLL = 3
+
+/** How many novels the "Random novels" row keeps at most. */
+internal const val RANDOM_NOVELS_LIMIT = 12
+
+/** A category/order pair used by the home requests. */
 data class HomePageSelection(
     val categoryIndex: Int,
     val orderByIndex: Int,
@@ -20,21 +28,6 @@ internal data class AddedAge(
     val amount: Int,
     val unit: AddedAgeUnit,
 )
-
-/**
- * Put the most recently read provider first, then keep the configured provider order. Only
- * providers with a main page are eligible for the Home carousels.
- */
-internal fun orderHomeProviders(
-    providers: Iterable<MainAPI>,
-    enabledProviderNames: Set<String>,
-    preferredProviderName: String?,
-): List<MainAPI> {
-    val eligible = providers.filter { it.hasMainPage && it.name in enabledProviderNames }
-    val preferred = eligible.firstOrNull { it.name == preferredProviderName }
-        ?: return eligible
-    return listOf(preferred) + eligible.filterNot { it.name == preferred.name }
-}
 
 /** Chooses the provider's newest/recent option, falling back to its default page filters. */
 internal fun latestPageSelection(api: MainAPI): HomePageSelection {
@@ -55,22 +48,37 @@ internal fun latestPageSelection(api: MainAPI): HomePageSelection {
     return HomePageSelection(categoryIndex, orderByIndex)
 }
 
-/** Returns a provider's popular/ranking query, or null if it exposes no such ordering. */
-internal fun popularPageSelection(api: MainAPI): HomePageSelection? {
-    val popularCategoryIndex = api.mainCategories.indexOfFirst { it.first.isPopularOrder() }
-        .takeIf { it >= 0 }
-    if (popularCategoryIndex != null) {
-        return HomePageSelection(categoryIndex = popularCategoryIndex, orderByIndex = -1)
-    }
+/** Randomly picks up to [count] different enabled providers that expose a main page. */
+internal fun pickRandomProviders(
+    providers: Iterable<MainAPI>,
+    enabledProviderNames: Set<String>,
+    count: Int,
+    random: Random = Random.Default,
+): List<MainAPI> =
+    providers.asSequence()
+        .filter { it.hasMainPage && it.name in enabledProviderNames }
+        .distinctBy { it.name }
+        .toList()
+        .shuffled(random)
+        .take(count)
 
-    val popularOrderIndex = api.orderBys.indexOfFirst { it.first.isPopularOrder() }
-        .takeIf { it >= 0 }
-        ?: return null
-    return HomePageSelection(
-        categoryIndex = latestPageSelection(api).categoryIndex,
-        orderByIndex = popularOrderIndex,
-    )
+/** Pages to try for one provider: a random page 1..3, falling back to page 1. */
+internal fun randomPageOrder(random: Random = Random.Default): List<Int> {
+    val first = random.nextInt(1, 4)
+    return if (first == 1) listOf(1) else listOf(first, 1)
 }
+
+/** De-duplicates by provider + url, shuffles and caps the progressive "Random novels" results. */
+internal fun mergeRandomNovels(
+    existing: List<SearchResponse>,
+    incoming: List<SearchResponse>,
+    limit: Int = RANDOM_NOVELS_LIMIT,
+    random: Random = Random.Default,
+): List<SearchResponse> =
+    (existing + incoming)
+        .distinctBy { it.apiName to it.url }
+        .shuffled(random)
+        .take(limit)
 
 /** Relative-age parts for a provider-supplied timestamp. A missing date stays hidden in the UI. */
 internal fun addedAge(

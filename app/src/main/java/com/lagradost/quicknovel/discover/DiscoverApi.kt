@@ -52,7 +52,38 @@ data class DiscoverPost(
     val rating: Int?,
     val tags: List<String>,
     val createdAt: Long,
+    /** Kept by a database trigger from the votes table; never written by the app. */
+    val score: Int = 0,
+    /** The signed-in user's vote on this post: -1, 0 or 1. */
+    val myVote: Int = 0,
 )
+
+/** Feed ordering. [New] keeps the historical behavior, [Top] ranks by community score. */
+enum class DiscoverSort {
+    New,
+    Top,
+}
+
+/** Fills [DiscoverPost.myVote] from one per-page votes query, never one request per card. */
+internal fun applyDiscoverVotes(posts: List<DiscoverPost>, votes: Map<String, Int>): List<DiscoverPost> =
+    posts.map { post -> post.copy(myVote = parseVoteValue(votes[post.id])) }
+
+/** Score rows may be null before the trigger ever ran; a missing score counts as zero. */
+internal fun parseDiscoverScore(raw: Int?): Int = raw ?: 0
+
+/** Only -1 and 1 are valid votes, anything else is treated as no vote. */
+internal fun parseVoteValue(raw: Int?): Int = when (raw) {
+    1 -> 1
+    -1 -> -1
+    else -> 0
+}
+
+enum class VoteError(@StringRes val text: Int) {
+    SignIn(R.string.username_error_sign_in_again),
+    OwnPost(R.string.discover_vote_own_post),
+    Offline(R.string.username_error_no_internet),
+    Generic(R.string.discover_vote_error),
+}
 
 enum class DiscoverError(@StringRes val text: Int) {
     SignIn(R.string.username_error_sign_in_again),
@@ -73,6 +104,7 @@ sealed interface DiscoverResult<out T> {
 /** Supabase REST only, using the existing HttpURLConnection + org.json transport (API 23). */
 object DiscoverApi {
     const val PAGE_SIZE = 20
+    private const val VOTE_PREFER = "resolution=merge-duplicates,return=minimal"
     private val baseUrl: String get() = BuildConfig.SUPABASE_URL.trim().trimEnd('/')
 
     internal fun errorOf(code: Int, body: String): DiscoverError = when {
@@ -84,15 +116,36 @@ object DiscoverApi {
         else -> DiscoverError.Generic
     }
 
-    internal fun feedPath(offset: Int, tag: String?): String {
+    internal fun voteErrorOf(code: Int, body: String): VoteError = when {
+        code == 401 -> VoteError.SignIn
+        // The database trigger rejects self-votes with "You can't vote on your own post".
+        body.contains("own post", ignoreCase = true) -> VoteError.OwnPost
+        else -> VoteError.Generic
+    }
+
+    internal fun feedPath(offset: Int, tag: String?, sort: DiscoverSort = DiscoverSort.New): String {
         val filter = normalizeDiscoverTags(listOfNotNull(tag)).firstOrNull()
         val query = filter?.let {
             // Backslashes are allowed tags, but must be escaped inside a Postgres array literal.
             "&tags=" + encode("cs.{\"${it.replace("\\", "\\\\")}\"}")
         }.orEmpty()
-        return "/rest/v1/discover_posts?select=*&order=created_at.desc&limit=$PAGE_SIZE" +
+        val order = when (sort) {
+            DiscoverSort.New -> "created_at.desc"
+            DiscoverSort.Top -> "score.desc,created_at.desc"
+        }
+        return "/rest/v1/discover_posts?select=*&order=$order&limit=$PAGE_SIZE" +
                 "&offset=${offset.coerceAtLeast(0)}$query"
     }
+
+    /** The signed-in user's votes for one page of posts, as post id to -1/1. */
+    internal fun votesPath(postIds: List<String>): String =
+        "/rest/v1/discover_votes?select=post_id,value&post_id=in.(" +
+                postIds.joinToString(",") { encode(it) } + ")"
+
+    internal fun voteUpsertPath(): String = "/rest/v1/discover_votes?on_conflict=post_id,user_id"
+
+    internal fun voteRemovePath(postId: String, userId: String): String =
+        "/rest/v1/discover_votes?post_id=eq.${encode(postId)}&user_id=eq.${encode(userId)}"
 
     suspend fun profile(context: Context): DiscoverResult<String?> = try {
         when (val result = SupabaseAuth.getProfile(context)) {
@@ -111,27 +164,94 @@ object DiscoverApi {
         DiscoverResult.Failure(DiscoverError.Generic)
     }
 
-    suspend fun feed(context: Context, offset: Int, tag: String?): DiscoverResult<List<DiscoverPost>> =
-        request(context, "GET", feedPath(offset, tag)) { body ->
-            val rows = JSONArray(body)
-            (0 until rows.length()).map { index ->
-                val row = rows.getJSONObject(index)
-                val tags = row.optJSONArray("tags") ?: JSONArray()
-                DiscoverPost(
-                    id = row.getString("id"),
-                    userId = row.getString("user_id"),
-                    authorName = row.getString("author_name"),
-                    provider = row.getString("provider"),
-                    novelUrl = row.getString("novel_url"),
-                    novelTitle = row.getString("novel_title"),
-                    coverUrl = if (row.isNull("cover_url")) null else row.optString("cover_url"),
-                    body = row.getString("body"),
-                    rating = if (row.isNull("rating")) null else row.optInt("rating").takeIf { it in 1..5 },
-                    tags = normalizeDiscoverTags((0 until tags.length()).map { tags.getString(it) }),
-                    createdAt = parseCreatedAt(row.getString("created_at")),
-                )
+    suspend fun feed(
+        context: Context,
+        offset: Int,
+        tag: String?,
+        sort: DiscoverSort = DiscoverSort.New,
+    ): DiscoverResult<List<DiscoverPost>> {
+        val result = request(context, "GET", feedPath(offset, tag, sort), parse = ::parseFeedPosts)
+        if (result !is DiscoverResult.Success || result.value.isEmpty()) return result
+        // One extra request per page fills myVote for every card; never one request per card.
+        val votes = myVotes(context, result.value.map { it.id })
+        return DiscoverResult.Success(applyDiscoverVotes(result.value, votes))
+    }
+
+    internal fun parseFeedPosts(body: String): List<DiscoverPost> {
+        val rows = JSONArray(body)
+        return (0 until rows.length()).map { index ->
+            val row = rows.getJSONObject(index)
+            val tags = row.optJSONArray("tags") ?: JSONArray()
+            DiscoverPost(
+                id = row.getString("id"),
+                userId = row.getString("user_id"),
+                authorName = row.getString("author_name"),
+                provider = row.getString("provider"),
+                novelUrl = row.getString("novel_url"),
+                novelTitle = row.getString("novel_title"),
+                coverUrl = if (row.isNull("cover_url")) null else row.optString("cover_url"),
+                body = row.getString("body"),
+                rating = if (row.isNull("rating")) null else row.optInt("rating").takeIf { it in 1..5 },
+                tags = normalizeDiscoverTags((0 until tags.length()).map { tags.getString(it) }),
+                createdAt = parseCreatedAt(row.getString("created_at")),
+                score = parseDiscoverScore(if (row.isNull("score")) null else row.optInt("score")),
+            )
+        }
+    }
+
+    /** Upserts ([value] 1 or -1) or removes ([value] 0) the viewer's vote. Null means success. */
+    suspend fun setVote(context: Context, postId: String, value: Int): VoteError? {
+        if (value !in -1..1) return VoteError.Generic
+        val userId = SupabaseAuth.currentUserId(context) ?: return VoteError.SignIn
+        return withContext(Dispatchers.IO) {
+            try {
+                val token = SupabaseAuth.getValidAccessToken(context) ?: return@withContext (
+                        if (SupabaseAuth.isLoggedIn(context)) VoteError.Offline else VoteError.SignIn
+                        )
+                val response = if (value == 0) {
+                    SupabaseAuth.requestJson(
+                        "DELETE", baseUrl + voteRemovePath(postId, userId), null, token, null,
+                    )
+                } else {
+                    val payload = JSONObject()
+                        .put("post_id", postId)
+                        .put("user_id", userId)
+                        .put("value", value)
+                    SupabaseAuth.requestJson(
+                        "POST", baseUrl + voteUpsertPath(), payload, token, VOTE_PREFER,
+                    )
+                }
+                if (response.isSuccessful) null else voteErrorOf(response.code, response.body)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: IOException) {
+                VoteError.Offline
+            } catch (_: Exception) {
+                // Never log or show raw response bodies, credentials or exception messages.
+                VoteError.Generic
             }
         }
+    }
+
+    /** Best effort: a failed votes query only leaves the page without highlights. */
+    private suspend fun myVotes(context: Context, postIds: List<String>): Map<String, Int> {
+        if (postIds.isEmpty()) return emptyMap()
+        return when (val result = request(context, "GET", votesPath(postIds), parse = ::parseVoteRows)) {
+            is DiscoverResult.Success -> result.value
+            is DiscoverResult.Failure -> emptyMap()
+        }
+    }
+
+    internal fun parseVoteRows(body: String): Map<String, Int> {
+        val rows = JSONArray(body)
+        val votes = HashMap<String, Int>()
+        for (index in 0 until rows.length()) {
+            val row = rows.getJSONObject(index)
+            val value = parseVoteValue(if (row.isNull("value")) null else row.optInt("value"))
+            if (value != 0) votes[row.getString("post_id")] = value
+        }
+        return votes
+    }
 
     suspend fun popularTags(context: Context): DiscoverResult<List<String>> =
         request(context, "POST", "/rest/v1/rpc/discover_top_tags", JSONObject().put("p_limit", 30)) { body ->
