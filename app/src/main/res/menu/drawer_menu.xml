@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+                android:id="@+id/navigation_novel_home"
+                android:checked="true"
+                android:icon="@drawable/book_2_24px"
+                android:title="@string/home_drawer_home" />
+        <item
+                android:id="@+id/navigation_download"
+                android:icon="@drawable/ic_baseline_collections_bookmark_24"
+                android:title="@string/home_drawer_library" />
+        <item
+                android:id="@+id/navigation_homepage"
+                android:icon="@drawable/ic_baseline_menu_book_24"
+                android:title="@string/home_drawer_browse" />
+        <item
+                android:id="@+id/navigation_search"
+                android:icon="@drawable/search_icon"
+                android:title="@string/home_drawer_novel_finder" />
+        <item
+                android:id="@+id/navigation_discover"
+                android:icon="@drawable/ic_outline_explore_24"
+                android:title="@string/title_discover" />
+        <item
+                android:id="@+id/navigation_history"
+                android:icon="@drawable/ic_baseline_history_24"
+                android:title="@string/title_history" />
+        <item
+                android:id="@+id/navigation_settings"
+                android:icon="@drawable/ic_outline_settings_24"
+                android:title="@string/title_settings" />
+    </group>
+</menu>
