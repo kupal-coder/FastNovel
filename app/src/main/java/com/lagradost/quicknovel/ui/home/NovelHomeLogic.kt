@@ -57,16 +57,18 @@ internal fun latestPageSelection(api: MainAPI): HomePageSelection {
 
 /** Returns a provider's popular/ranking query, or null if it exposes no such ordering. */
 internal fun popularPageSelection(api: MainAPI): HomePageSelection? {
-    val categoryIndex = api.mainCategories.indexOfFirst { it.first.isPopularOrder() }
+    val popularCategoryIndex = api.mainCategories.indexOfFirst { it.first.isPopularOrder() }
         .takeIf { it >= 0 }
-    val orderByIndex = api.orderBys.indexOfFirst { it.first.isPopularOrder() }
+    if (popularCategoryIndex != null) {
+        return HomePageSelection(categoryIndex = popularCategoryIndex, orderByIndex = -1)
+    }
+
+    val popularOrderIndex = api.orderBys.indexOfFirst { it.first.isPopularOrder() }
         .takeIf { it >= 0 }
-
-    if (categoryIndex == null && orderByIndex == null) return null
-
+        ?: return null
     return HomePageSelection(
-        categoryIndex = categoryIndex ?: latestPageSelection(api).categoryIndex,
-        orderByIndex = orderByIndex ?: if (categoryIndex != null) -1 else latestPageSelection(api).orderByIndex,
+        categoryIndex = latestPageSelection(api).categoryIndex,
+        orderByIndex = popularOrderIndex,
     )
 }
 

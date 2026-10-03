@@ -69,7 +69,7 @@ class NovelHomeLogicTest {
 
     @Test
     fun relativeAgeHandlesMissingFutureAndUnitBoundaries() {
-        val now = 10_000_000L
+        val now = 300_000_000L
 
         assertNull(addedAge(null, now))
         assertNull(addedAge(0L, now))

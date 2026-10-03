@@ -294,7 +294,7 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
                     val activeUserId = currentUserId()
                     if (activeUserId != userId) {
                         refreshCommunityForCurrentSession()
-                    } else if (result.error == DiscoverError.SignIn || activeUserId == null) {
+                    } else if (result.error == DiscoverError.SignIn) {
                         mutableState.update { it.copy(communityPosts = HomeCarouselState.Hidden) }
                     } else {
                         mutableState.update { it.copy(communityPosts = HomeCarouselState.Error) }
