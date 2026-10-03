@@ -19,6 +19,7 @@ import com.lagradost.quicknovel.auth.LoginActivity
 import com.lagradost.quicknovel.compose.CloudStreamTheme
 import com.lagradost.quicknovel.compose.loadPrimaryColor
 import com.lagradost.quicknovel.compose.loadThemeMode
+import com.lagradost.quicknovel.discover.isSafeNovelTarget
 
 /** Hosted exactly like the existing Library and Settings Compose fragments. */
 class DiscoverFragment : Fragment() {
@@ -39,7 +40,14 @@ class DiscoverFragment : Fragment() {
                 DiscoverScreen(
                     state = state,
                     action = viewModel::onAction,
-                    openNovel = { loadResult(it.novelUrl, it.provider) },
+                    // Posts carry a provider and URL written by other users.
+                    openNovel = { post ->
+                        if (isSafeNovelTarget(post.provider, post.novelUrl)) {
+                            loadResult(post.novelUrl, post.provider)
+                        } else {
+                            viewModel.onAction(DiscoverAction.UnsafeNovel)
+                        }
+                    },
                     signIn = { startActivity(Intent(requireContext(), LoginActivity::class.java)) },
                     settings = {
                         activity?.findViewById<BottomNavigationView>(R.id.nav_view)?.selectedItemId =
@@ -52,6 +60,6 @@ class DiscoverFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.onResume()
+        viewModel.onResume(DiscoverNavigation.consumePendingSort())
     }
 }

@@ -11,6 +11,9 @@ import com.lagradost.quicknovel.discover.DiscoverApi
 import com.lagradost.quicknovel.discover.DiscoverError
 import com.lagradost.quicknovel.discover.DiscoverPost
 import com.lagradost.quicknovel.discover.DiscoverResult
+import com.lagradost.quicknovel.discover.DiscoverSort
+import com.lagradost.quicknovel.discover.VoteError
+import com.lagradost.quicknovel.discover.discoverVoteDelta
 import com.lagradost.quicknovel.discover.isDiscoverBodyValid
 import com.lagradost.quicknovel.discover.normalizeDiscoverTags
 import com.lagradost.quicknovel.mvvm.Resource
@@ -26,6 +29,18 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 enum class DiscoverGate { Loading, SignedOut, Username, Ready, Error }
+
+/** One-shot handoff so other tabs can open Discover with a chosen sort (Home "See more" -> Top). */
+object DiscoverNavigation {
+    @Volatile
+    private var pendingSort: DiscoverSort? = null
+
+    fun requestSort(sort: DiscoverSort) {
+        pendingSort = sort
+    }
+
+    fun consumePendingSort(): DiscoverSort? = pendingSort.also { pendingSort = null }
+}
 
 data class WritePostState(
     val loadingLibrary: Boolean = true,
@@ -45,6 +60,7 @@ data class WritePostState(
 data class DiscoverState(
     val gate: DiscoverGate = DiscoverGate.Loading,
     val userId: String? = null,
+    val sort: DiscoverSort = DiscoverSort.New,
     val posts: List<DiscoverPost> = emptyList(),
     val popularTags: List<String> = emptyList(),
     val selectedTag: String? = null,
@@ -67,6 +83,9 @@ sealed interface DiscoverAction {
     data object Retry : DiscoverAction
     data object LoadMore : DiscoverAction
     data class Filter(val tag: String?) : DiscoverAction
+    data class Sort(val sort: DiscoverSort) : DiscoverAction
+    data class Vote(val post: DiscoverPost, val value: Int) : DiscoverAction
+    data object UnsafeNovel : DiscoverAction
     data object Write : DiscoverAction
     data object CloseWriter : DiscoverAction
     data object RetryLibrary : DiscoverAction
@@ -97,8 +116,12 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
         SupabaseAuth.currentUserId(context).takeIf { SupabaseAuth.isLoggedIn(context) }
 
     /** Recheck after LoginActivity or Settings returns, without losing the selected filter. */
-    fun onResume() {
+    fun onResume(pendingSort: DiscoverSort? = null) {
+        if (pendingSort != null && pendingSort != state.value.sort) {
+            mutableState.update { it.copy(sort = pendingSort) }
+        }
         val userId = sessionId()
+        val sort = state.value.sort
         profileJob?.cancel()
         if (userId != state.value.userId || userId == null) {
             feedJob?.cancel()
@@ -109,6 +132,7 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
             mutableState.value = DiscoverState(
                 userId = userId,
                 gate = if (userId == null) DiscoverGate.SignedOut else DiscoverGate.Loading,
+                sort = sort,
             )
         }
         if (userId == null) return
@@ -152,23 +176,25 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    private fun currentQuery(userId: String, tag: String?): Boolean =
+    private fun currentQuery(userId: String, tag: String?, sort: DiscoverSort): Boolean =
         sessionId() == userId && state.value.userId == userId &&
-                state.value.selectedTag == tag && state.value.gate == DiscoverGate.Ready
+                state.value.selectedTag == tag && state.value.sort == sort &&
+                state.value.gate == DiscoverGate.Ready
 
     private fun refresh(clear: Boolean = false) {
         val userId = state.value.userId ?: return
         val tag = state.value.selectedTag
-        if (!currentQuery(userId, tag)) { onResume(); return }
+        val sort = state.value.sort
+        if (!currentQuery(userId, tag, sort)) { onResume(); return }
         feedJob?.cancel()
         mutableState.update {
             it.copy(refreshing = true, loadingMore = false, error = null, moreError = null,
                 posts = if (clear) emptyList() else it.posts, hasMore = false)
         }
         feedJob = viewModelScope.launch {
-            val result = DiscoverApi.feed(context, 0, tag)
+            val result = DiscoverApi.feed(context, 0, tag, sort)
             if (sessionId() != userId) { onResume(); return@launch }
-            if (!currentQuery(userId, tag)) return@launch
+            if (!currentQuery(userId, tag, sort)) return@launch
             when (result) {
                 is DiscoverResult.Success -> mutableState.update {
                     it.copy(posts = result.value, offset = result.value.size,
@@ -180,16 +206,16 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
             }
         }
         // An active filter must not replace/reorder the popular chip list.
-        if (tag == null) refreshPopularTags(userId) else popularJob?.cancel()
+        if (tag == null) refreshPopularTags(userId, sort) else popularJob?.cancel()
     }
 
-    private fun refreshPopularTags(userId: String) {
+    private fun refreshPopularTags(userId: String, sort: DiscoverSort) {
         popularJob?.cancel()
         mutableState.update { it.copy(tagsError = null) }
         popularJob = viewModelScope.launch {
             val result = DiscoverApi.popularTags(context)
             if (sessionId() != userId) { onResume(); return@launch }
-            if (!currentQuery(userId, null)) return@launch
+            if (!currentQuery(userId, null, sort)) return@launch
             when (result) {
                 is DiscoverResult.Success -> mutableState.update { it.copy(popularTags = result.value) }
                 is DiscoverResult.Failure -> if (!accountError(result.error)) {
@@ -202,12 +228,13 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
     private fun loadMore() {
         val before = state.value
         val userId = before.userId ?: return
-        if (!before.hasMore || before.refreshing || before.loadingMore || !currentQuery(userId, before.selectedTag)) return
+        if (!before.hasMore || before.refreshing || before.loadingMore ||
+            !currentQuery(userId, before.selectedTag, before.sort)) return
         mutableState.update { it.copy(loadingMore = true, moreError = null) }
         feedJob = viewModelScope.launch {
-            val result = DiscoverApi.feed(context, before.offset, before.selectedTag)
+            val result = DiscoverApi.feed(context, before.offset, before.selectedTag, before.sort)
             if (sessionId() != userId) { onResume(); return@launch }
-            if (!currentQuery(userId, before.selectedTag)) return@launch
+            if (!currentQuery(userId, before.selectedTag, before.sort)) return@launch
             when (result) {
                 is DiscoverResult.Success -> mutableState.update {
                     it.copy(posts = (it.posts + result.value).distinctBy { post -> post.id },
@@ -218,6 +245,34 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
                     mutableState.update { it.copy(loadingMore = false, moreError = result.error) }
                 }
             }
+        }
+    }
+
+    /** Optimistic Reddit-style vote: apply first, roll back with a snackbar on failure. */
+    private fun vote(post: DiscoverPost, targetVote: Int) {
+        if (targetVote !in -1..1) return
+        val userId = state.value.userId
+        if (userId == null || !SupabaseAuth.isLoggedIn(context)) {
+            // Signed out: show the sign-in prompt instead of voting.
+            mutableState.update { it.copy(notice = VoteError.SignIn.text) }
+            return
+        }
+        val previous = post.myVote
+        val delta = discoverVoteDelta(previous, targetVote)
+        updatePost(post.id) { it.copy(score = it.score + delta, myVote = targetVote) }
+        viewModelScope.launch {
+            val error = DiscoverApi.setVote(context, post.id, targetVote)
+            if (sessionId() != userId) return@launch
+            if (error != null) {
+                updatePost(post.id) { it.copy(score = it.score - delta, myVote = previous) }
+                mutableState.update { it.copy(notice = error.text) }
+            }
+        }
+    }
+
+    private fun updatePost(postId: String, transform: (DiscoverPost) -> DiscoverPost) {
+        mutableState.update { state ->
+            state.copy(posts = state.posts.map { if (it.id == postId) transform(it) else it })
         }
     }
 
@@ -327,6 +382,13 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
                 mutableState.update { it.copy(selectedTag = tag.takeUnless { selected -> selected == it.selectedTag }, tagsError = null) }
                 refresh(clear = true)
             }
+            is DiscoverAction.Sort -> if (state.value.sort != action.sort) {
+                mutableState.update { it.copy(sort = action.sort) }
+                refresh(clear = true)
+            }
+            is DiscoverAction.Vote -> vote(action.post, action.value)
+            DiscoverAction.UnsafeNovel ->
+                mutableState.update { it.copy(notice = R.string.discover_cannot_open_novel) }
             DiscoverAction.Write -> openWriter()
             DiscoverAction.RetryLibrary -> openWriter(reload = true)
             DiscoverAction.CloseWriter -> if (state.value.writer?.posting != true) {

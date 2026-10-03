@@ -7,6 +7,7 @@ import androidx.preference.PreferenceManager
 import com.lagradost.quicknovel.EPUB_CURRENT_POSITION
 import com.lagradost.quicknovel.EPUB_CURRENT_POSITION_CHAPTER
 import com.lagradost.quicknovel.HISTORY_FOLDER
+import com.lagradost.quicknovel.MainAPI
 import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.SearchResponse
 import com.lagradost.quicknovel.auth.SupabaseAuth
@@ -14,45 +15,109 @@ import com.lagradost.quicknovel.discover.DiscoverApi
 import com.lagradost.quicknovel.discover.DiscoverError
 import com.lagradost.quicknovel.discover.DiscoverPost
 import com.lagradost.quicknovel.discover.DiscoverResult
+import com.lagradost.quicknovel.discover.DiscoverSort
+import com.lagradost.quicknovel.discover.VoteError
+import com.lagradost.quicknovel.discover.discoverVoteDelta
+import com.lagradost.quicknovel.discover.isSafeNovelTarget
 import com.lagradost.quicknovel.util.Apis
-import com.lagradost.quicknovel.util.Apis.Companion.apis
 import com.lagradost.quicknovel.util.ResultCached
 import com.lagradost.quicknovel.DataStore.getKey
 import com.lagradost.quicknovel.DataStore.getKeys
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+/** One provider's answer to a "Random novels" roll. */
+private sealed interface RandomProviderOutcome {
+    data class Items(val items: List<SearchResponse>) : RandomProviderOutcome
+    data object Empty : RandomProviderOutcome
+    data object Failed : RandomProviderOutcome
+}
+
+private const val RANDOM_PROVIDER_TIMEOUT_MS = 12_000L
 
 class NovelHomeViewModel(application: Application) : AndroidViewModel(application) {
     private val context = application.applicationContext
     private val mutableState = MutableStateFlow(HomeUiState())
     val state = mutableState.asStateFlow()
 
-    private var latestJob: Job? = null
     private var popularJob: Job? = null
-    private var communityJob: Job? = null
-    private var communityUserId: String? = null
+    private var randomJob: Job? = null
+    private var popularUserId: String? = null
 
     init {
         refreshContinueReading()
-        reloadNewNovels()
+        refreshPopularForSession()
+        loadRandomNovels()
     }
 
     fun onResume() {
         refreshContinueReading()
-        refreshCommunityForCurrentSession()
+        refreshPopularForSession()
     }
 
     fun retry(carousel: HomeCarousel) {
         when (carousel) {
-            HomeCarousel.New -> reloadNewNovels()
-            HomeCarousel.Popular -> retryPopular()
-            HomeCarousel.Community -> loadCommunity()
+            HomeCarousel.Popular -> loadPopularPosts()
+            HomeCarousel.Random -> loadRandomNovels()
+        }
+    }
+
+    /** The header "Shuffle" pill re-rolls providers, pages and the row order. */
+    fun shuffle() = loadRandomNovels()
+
+    fun clearNotice() {
+        mutableState.update { it.copy(notice = null) }
+    }
+
+    /** Posts carry a provider name and URL written by other users; only open known https hosts. */
+    fun openPost(post: DiscoverPost, open: (url: String, provider: String) -> Unit) {
+        if (isSafeNovelTarget(post.provider, post.novelUrl)) {
+            open(post.novelUrl, post.provider)
+        } else {
+            mutableState.update { it.copy(notice = R.string.discover_cannot_open_novel) }
+        }
+    }
+
+    /** Optimistic Reddit-style vote: apply first, roll back with a snackbar on failure. */
+    fun requestVote(post: DiscoverPost, targetVote: Int) {
+        if (targetVote !in -1..1) return
+        if (currentUserId() == null) {
+            // Signed out (or the session was lost): show the sign-in prompt instead of voting.
+            mutableState.update { it.copy(notice = VoteError.SignIn.text) }
+            return
+        }
+        val previous = post.myVote
+        val delta = discoverVoteDelta(previous, targetVote)
+        updatePost(post.id) { it.copy(score = it.score + delta, myVote = targetVote) }
+        viewModelScope.launch {
+            val error = DiscoverApi.setVote(context, post.id, targetVote)
+            if (error != null) {
+                updatePost(post.id) { it.copy(score = it.score - delta, myVote = previous) }
+                mutableState.update { it.copy(notice = error.text) }
+            }
+        }
+    }
+
+    private fun updatePost(postId: String, transform: (DiscoverPost) -> DiscoverPost) {
+        mutableState.update { home ->
+            val popular = home.popularPosts
+            if (popular is HomeCarouselState.Loaded) {
+                home.copy(
+                    popularPosts = HomeCarouselState.Loaded(
+                        popular.items.map { if (it.id == postId) transform(it) else it },
+                    ),
+                )
+            } else {
+                home
+            }
         }
     }
 
@@ -78,11 +143,12 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
             .maxByOrNull { it.cachedTime }
     }
 
-    private fun recentProviderName(): String? = latestHistoryItem()?.apiName
+    private fun currentUserId(): String? =
+        SupabaseAuth.currentUserId(context).takeIf { SupabaseAuth.isLoggedIn(context) }
 
     private fun enabledProviderNames(): Set<String> {
         val preferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val allNames = apis.map { it.name }.toSet()
+        val allNames = Apis.apis.map { it.name }.toSet()
         val selectedNames = preferences.getStringSet(
             context.getString(R.string.search_providers_list_key),
             allNames,
@@ -92,7 +158,7 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
             setOf("en"),
         )?.toSet().orEmpty().ifEmpty { setOf("en") }
 
-        val filtered = apis.asSequence()
+        val filtered = Apis.apis.asSequence()
             .filter { it.name in selectedNames && it.lang in selectedLanguages }
             .map { it.name }
             .toSet()
@@ -100,228 +166,143 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
         return filtered.ifEmpty { allNames }
     }
 
-    private fun providerCandidates(): List<com.lagradost.quicknovel.MainAPI> =
-        orderHomeProviders(
-            providers = Apis.apis,
-            enabledProviderNames = enabledProviderNames(),
-            preferredProviderName = recentProviderName(),
-        )
+    // Popular: the top community posts from Discover, ranked by score.
 
-    private fun reloadNewNovels() {
-        latestJob?.cancel()
-        popularJob?.cancel()
-        mutableState.update {
-            it.copy(
-                newNovels = HomeCarouselState.Loading,
-                popularNovels = HomeCarouselState.Hidden,
-                newPage = null,
-                popularPage = null,
-            )
-        }
-
-        latestJob = viewModelScope.launch {
-            val candidates = withContext(Dispatchers.IO) { providerCandidates() }
-            val first = candidates.firstOrNull()
-            val initialNewSelection = first?.let(::latestPageSelection)
-            val initialNewTarget = if (first != null && initialNewSelection != null) {
-                pageTarget(first, initialNewSelection)
-            } else {
-                null
-            }
-            val initialPopularSelection = first?.let(::popularPageSelection)
-                ?.takeIf { it != initialNewSelection }
-            val initialPopularTarget = if (first != null && initialPopularSelection != null) {
-                pageTarget(first, initialPopularSelection)
-            } else {
-                null
-            }
-            mutableState.update {
-                it.copy(
-                    popularNovels = if (initialPopularTarget == null) {
-                        HomeCarouselState.Hidden
-                    } else {
-                        HomeCarouselState.Loading
-                    },
-                    newPage = initialNewTarget,
-                    popularPage = initialPopularTarget,
-                )
-            }
-
-            val latest = loadLatestFrom(candidates)
-            if (latest == null) {
-                mutableState.update {
-                    it.copy(
-                        newNovels = HomeCarouselState.Error,
-                        popularNovels = if (it.popularPage == null) {
-                            HomeCarouselState.Hidden
-                        } else {
-                            HomeCarouselState.Error
-                        },
-                    )
-                }
-                return@launch
-            }
-
-            val popularSelection = popularPageSelection(latest.api)
-                ?.takeIf { it != latest.selection }
-            val newTarget = pageTarget(latest.api, latest.selection)
-            val popularTarget = popularSelection?.let { pageTarget(latest.api, it) }
-            mutableState.update {
-                it.copy(
-                    newNovels = latest.items.toNovelCarouselState(),
-                    popularNovels = if (popularTarget == null) {
-                        HomeCarouselState.Hidden
-                    } else {
-                        HomeCarouselState.Loading
-                    },
-                    newPage = newTarget,
-                    popularPage = popularTarget,
-                )
-            }
-
-            if (popularSelection != null) {
-                loadPopular(latest.api, popularSelection)
-            }
-        }
-    }
-
-    private suspend fun loadLatestFrom(
-        candidates: List<com.lagradost.quicknovel.MainAPI>,
-    ): LatestProviderPage? {
-        var firstEmptyPage: LatestProviderPage? = null
-        for (api in candidates) {
-            val selection = latestPageSelection(api)
-            val result = try {
-                withContext(Dispatchers.IO) {
-                    api.loadMainPage(
-                        page = 1,
-                        mainCategory = api.mainCategories.getOrNull(selection.categoryIndex)?.second,
-                        orderBy = api.orderBys.getOrNull(selection.orderByIndex)?.second,
-                        tag = null,
-                    )
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                continue
-            } catch (_: NotImplementedError) {
-                continue
-            }
-
-            val page = LatestProviderPage(api, selection, result.list)
-            if (result.list.isNotEmpty()) return page
-            if (firstEmptyPage == null) firstEmptyPage = page
-        }
-        return firstEmptyPage
-    }
-
-    private fun loadPopular(
-        api: com.lagradost.quicknovel.MainAPI,
-        selection: HomePageSelection,
-    ) {
-        popularJob?.cancel()
-        popularJob = viewModelScope.launch {
-            val page = try {
-                withContext(Dispatchers.IO) {
-                    api.loadMainPage(
-                        page = 1,
-                        mainCategory = api.mainCategories.getOrNull(selection.categoryIndex)?.second,
-                        orderBy = api.orderBys.getOrNull(selection.orderByIndex)?.second,
-                        tag = null,
-                    )
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                mutableState.update { it.copy(popularNovels = HomeCarouselState.Error) }
-                return@launch
-            } catch (_: NotImplementedError) {
-                mutableState.update { it.copy(popularNovels = HomeCarouselState.Error) }
-                return@launch
-            }
-            mutableState.update { it.copy(popularNovels = page.list.toNovelCarouselState()) }
-        }
-    }
-
-    private fun retryPopular() {
-        val target = mutableState.value.popularPage ?: return
-        val api = apis.firstOrNull { it.name == target.apiName } ?: run {
-            mutableState.update { it.copy(popularNovels = HomeCarouselState.Error) }
-            return
-        }
-        val selection = HomePageSelection(target.categoryIndex, target.orderByIndex)
-        mutableState.update { it.copy(popularNovels = HomeCarouselState.Loading) }
-        loadPopular(api, selection)
-    }
-
-    private fun refreshCommunityForCurrentSession() {
+    private fun refreshPopularForSession() {
         val userId = currentUserId()
         if (userId == null) {
-            communityJob?.cancel()
-            communityUserId = null
-            mutableState.update { it.copy(communityPosts = HomeCarouselState.Hidden) }
+            popularJob?.cancel()
+            popularUserId = null
+            mutableState.update { it.copy(signedIn = false, popularPosts = HomeCarouselState.Hidden) }
             return
         }
-        if (communityUserId != userId || mutableState.value.communityPosts is HomeCarouselState.Hidden) {
-            communityUserId = userId
-            loadCommunity()
+        if (popularUserId != userId || mutableState.value.popularPosts is HomeCarouselState.Hidden) {
+            loadPopularPosts()
+        } else {
+            mutableState.update { it.copy(signedIn = true) }
         }
     }
 
-    private fun currentUserId(): String? =
-        SupabaseAuth.currentUserId(context).takeIf { SupabaseAuth.isLoggedIn(context) }
-
-    private fun loadCommunity() {
-        val userId = currentUserId() ?: run {
-            communityUserId = null
-            mutableState.update { it.copy(communityPosts = HomeCarouselState.Hidden) }
+    private fun loadPopularPosts() {
+        val userId = currentUserId()
+        if (userId == null) {
+            popularJob?.cancel()
+            popularUserId = null
+            mutableState.update { it.copy(signedIn = false, popularPosts = HomeCarouselState.Hidden) }
             return
         }
-
-        communityUserId = userId
-        communityJob?.cancel()
-        mutableState.update { it.copy(communityPosts = HomeCarouselState.Loading) }
-        communityJob = viewModelScope.launch {
-            when (val result = DiscoverApi.feed(context, offset = 0, tag = null)) {
+        popularUserId = userId
+        popularJob?.cancel()
+        mutableState.update { it.copy(signedIn = true, popularPosts = HomeCarouselState.Loading) }
+        popularJob = viewModelScope.launch {
+            when (val result = DiscoverApi.feed(context, offset = 0, tag = null, sort = DiscoverSort.Top)) {
                 is DiscoverResult.Success -> {
                     if (currentUserId() != userId) {
-                        refreshCommunityForCurrentSession()
+                        refreshPopularForSession()
                         return@launch
                     }
-                    mutableState.update { it.copy(communityPosts = result.value.toPostCarouselState()) }
+                    mutableState.update { it.copy(popularPosts = result.value.toPostCarouselState()) }
                 }
                 is DiscoverResult.Failure -> {
-                    val activeUserId = currentUserId()
-                    if (activeUserId != userId) {
-                        refreshCommunityForCurrentSession()
-                    } else if (result.error == DiscoverError.SignIn) {
-                        mutableState.update { it.copy(communityPosts = HomeCarouselState.Hidden) }
+                    if (currentUserId() != userId) {
+                        refreshPopularForSession()
+                        return@launch
+                    }
+                    if (result.error == DiscoverError.SignIn) {
+                        popularUserId = null
+                        mutableState.update {
+                            it.copy(signedIn = false, popularPosts = HomeCarouselState.Hidden)
+                        }
                     } else {
-                        mutableState.update { it.copy(communityPosts = HomeCarouselState.Error) }
+                        mutableState.update { it.copy(popularPosts = HomeCarouselState.Error) }
                     }
                 }
             }
         }
     }
 
-    private fun pageTarget(
-        api: com.lagradost.quicknovel.MainAPI,
-        selection: HomePageSelection,
-    ) = HomePageTarget(
-        apiName = api.name,
-        categoryIndex = selection.categoryIndex,
-        orderByIndex = selection.orderByIndex,
-    )
+    // Random novels: up to three random providers, asked in parallel, shown progressively.
 
-    private fun List<SearchResponse>.toNovelCarouselState(): HomeCarouselState<SearchResponse> =
-        if (isEmpty()) HomeCarouselState.Empty else HomeCarouselState.Loaded(this)
+    private fun loadRandomNovels() {
+        randomJob?.cancel()
+        mutableState.update { it.copy(randomNovels = RandomNovelsState(loading = true)) }
+        randomJob = viewModelScope.launch {
+            val picks = withContext(Dispatchers.IO) {
+                pickRandomProviders(
+                    providers = Apis.apis,
+                    enabledProviderNames = enabledProviderNames(),
+                    count = RANDOM_PROVIDERS_PER_ROLL,
+                )
+            }
+            if (picks.isEmpty()) {
+                mutableState.update { it.copy(randomNovels = RandomNovelsState(loading = false)) }
+                return@launch
+            }
+            coroutineScope {
+                picks.forEach { api ->
+                    launch {
+                        // A timeout counts as a failure for that provider, not for the row.
+                        val outcome = withTimeoutOrNull(RANDOM_PROVIDER_TIMEOUT_MS) {
+                            randomProviderNovels(api)
+                        } ?: RandomProviderOutcome.Failed
+                        when (outcome) {
+                            is RandomProviderOutcome.Items -> mutableState.update { home ->
+                                home.copy(
+                                    randomNovels = home.randomNovels.copy(
+                                        items = mergeRandomNovels(home.randomNovels.items, outcome.items),
+                                    ),
+                                )
+                            }
+                            RandomProviderOutcome.Failed -> mutableState.update { home ->
+                                home.copy(
+                                    randomNovels = home.randomNovels.copy(
+                                        failedSources = home.randomNovels.failedSources + api.name,
+                                    ),
+                                )
+                            }
+                            RandomProviderOutcome.Empty -> Unit
+                        }
+                    }
+                }
+            }
+            mutableState.update { home ->
+                val random = home.randomNovels
+                home.copy(
+                    randomNovels = random.copy(
+                        loading = false,
+                        failedSources = if (random.items.isEmpty()) random.failedSources else emptyList(),
+                    ),
+                )
+            }
+        }
+    }
+
+    private suspend fun randomProviderNovels(api: MainAPI): RandomProviderOutcome =
+        withContext(Dispatchers.IO) {
+            val selection = latestPageSelection(api)
+            var sawFailure = false
+            for (page in randomPageOrder()) {
+                val items = try {
+                    api.loadMainPage(
+                        page = page,
+                        mainCategory = api.mainCategories.getOrNull(selection.categoryIndex)?.second,
+                        orderBy = api.orderBys.getOrNull(selection.orderByIndex)?.second,
+                        tag = null,
+                    ).list
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    null
+                }
+                if (items == null) {
+                    sawFailure = true
+                    continue
+                }
+                if (items.isNotEmpty()) return@withContext RandomProviderOutcome.Items(items)
+            }
+            if (sawFailure) RandomProviderOutcome.Failed else RandomProviderOutcome.Empty
+        }
 
     private fun List<DiscoverPost>.toPostCarouselState(): HomeCarouselState<DiscoverPost> =
         if (isEmpty()) HomeCarouselState.Empty else HomeCarouselState.Loaded(this)
-
-    private data class LatestProviderPage(
-        val api: com.lagradost.quicknovel.MainAPI,
-        val selection: HomePageSelection,
-        val items: List<SearchResponse>,
-    )
 }

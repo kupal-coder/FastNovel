@@ -19,15 +19,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -47,9 +51,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -59,42 +62,51 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.SearchResponse
+import com.lagradost.quicknovel.compose.CloudStreamPrimaryColor
+import com.lagradost.quicknovel.compose.CloudStreamTheme
+import com.lagradost.quicknovel.compose.CloudStreamTheme.colors
+import com.lagradost.quicknovel.compose.CloudStreamThemeMode
 import com.lagradost.quicknovel.discover.DiscoverPost
+import com.lagradost.quicknovel.ui.discover.VoteControl
 import com.lagradost.quicknovel.util.ResultCached
-import com.lagradost.quicknovel.ui.home.HomeCarousel.Community
-import com.lagradost.quicknovel.ui.home.HomeCarousel.New
-import com.lagradost.quicknovel.ui.home.HomeCarousel.Popular
 
+/**
+ * Home is hosted inside CloudStreamTheme by [NovelHomeFragment], exactly like the other Compose
+ * screens, so every color below comes from the theme mode and accent picked in Settings.
+ */
 @Composable
 fun NovelHomeScreen(
     state: HomeUiState,
     onOpenDrawer: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenAccount: () -> Unit = {},
+    onSignIn: () -> Unit = {},
     onContinueReading: (ContinueReadingItem) -> Unit = {},
     onOpenNovel: (String, String) -> Unit = { _, _ -> },
-    onSeeMore: (HomePageTarget) -> Unit = {},
+    onOpenPost: (DiscoverPost) -> Unit = {},
+    onSeeMorePopular: () -> Unit = {},
     onSearchTag: (String) -> Unit = {},
-    onOpenDiscover: () -> Unit = {},
+    onShuffle: () -> Unit = {},
+    onVote: (DiscoverPost, Int) -> Unit = { _, _ -> },
     onRetry: (HomeCarousel) -> Unit = {},
+    onConsumeNotice: () -> Unit = {},
 ) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = NovelHomeTokens.accent,
-            onPrimary = NovelHomeTokens.accentText,
-            background = NovelHomeTokens.background,
-            onBackground = NovelHomeTokens.text,
-            surface = NovelHomeTokens.surface,
-            onSurface = NovelHomeTokens.text,
-            surfaceVariant = NovelHomeTokens.elevatedSurface,
-            onSurfaceVariant = NovelHomeTokens.mutedText,
-            error = NovelHomeTokens.error,
-        ),
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.notice) {
+        state.notice?.let {
+            snackbar.showSnackbar(context.getString(it))
+            onConsumeNotice()
+        }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(NovelHomeTokens.background)
                 .statusBarsPadding(),
         ) {
             HomeTopBar(
@@ -106,12 +118,12 @@ fun NovelHomeScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    start = NovelHomeTokens.pageHorizontal,
-                    end = NovelHomeTokens.pageHorizontal,
+                    start = NovelHomeStyle.pageHorizontal,
+                    end = NovelHomeStyle.pageHorizontal,
                     top = 8.dp,
                     bottom = 28.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(NovelHomeTokens.sectionGap),
+                verticalArrangement = Arrangement.spacedBy(NovelHomeStyle.sectionGap),
             ) {
                 item(key = "tag-search") {
                     TagSearchEntry(onSearchTag)
@@ -123,47 +135,33 @@ fun NovelHomeScreen(
                     }
                 }
 
-                item(key = "new-novels") {
-                    NovelCarousel(
-                        title = stringResource(R.string.home_new_novels),
-                        state = state.newNovels,
-                        pageTarget = state.newPage,
-                        emptyMessage = stringResource(R.string.home_new_empty),
-                        errorMessage = stringResource(R.string.home_new_error),
-                        onOpenNovel = onOpenNovel,
-                        onSeeMore = onSeeMore,
-                        onRetry = { onRetry(New) },
+                item(key = "popular") {
+                    PopularSection(
+                        signedIn = state.signedIn,
+                        posts = state.popularPosts,
+                        onOpenPost = onOpenPost,
+                        onSearchTag = onSearchTag,
+                        onVote = onVote,
+                        onSeeMore = onSeeMorePopular,
+                        onSignIn = onSignIn,
+                        onRetry = { onRetry(HomeCarousel.Popular) },
                     )
                 }
 
-                if (state.popularNovels !is HomeCarouselState.Hidden) {
-                    item(key = "popular-novels") {
-                        NovelCarousel(
-                            title = stringResource(R.string.home_popular),
-                            state = state.popularNovels,
-                            pageTarget = state.popularPage,
-                            emptyMessage = stringResource(R.string.home_popular_empty),
-                            errorMessage = stringResource(R.string.home_popular_error),
-                            onOpenNovel = onOpenNovel,
-                            onSeeMore = onSeeMore,
-                            onRetry = { onRetry(Popular) },
-                        )
-                    }
-                }
-
-                if (state.communityPosts !is HomeCarouselState.Hidden) {
-                    item(key = "community-posts") {
-                        CommunityCarousel(
-                            state = state.communityPosts,
-                            onOpenNovel = onOpenNovel,
-                            onSearchTag = onSearchTag,
-                            onSeeMore = onOpenDiscover,
-                            onRetry = { onRetry(Community) },
-                        )
-                    }
+                item(key = "random-novels") {
+                    RandomSection(
+                        random = state.randomNovels,
+                        onOpenNovel = onOpenNovel,
+                        onShuffle = onShuffle,
+                        onRetry = { onRetry(HomeCarousel.Random) },
+                    )
                 }
             }
         }
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 
@@ -176,7 +174,7 @@ private fun TagSearchEntry(onSearchTag: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = stringResource(R.string.home_tag_search_title),
-            color = NovelHomeTokens.text,
+            color = colors.onBackground,
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
         )
@@ -187,11 +185,11 @@ private fun TagSearchEntry(onSearchTag: (String) -> Unit) {
             placeholder = {
                 Text(
                     text = stringResource(R.string.home_tag_search_hint),
-                    color = NovelHomeTokens.mutedText,
+                    color = colors.onSurfaceVariant,
                 )
             },
             singleLine = true,
-            shape = NovelHomeTokens.smallCardShape,
+            shape = NovelHomeStyle.smallCardShape,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { submit() }),
             trailingIcon = {
@@ -199,19 +197,19 @@ private fun TagSearchEntry(onSearchTag: (String) -> Unit) {
                     Icon(
                         painter = painterResource(R.drawable.search_icon),
                         contentDescription = stringResource(R.string.home_tag_search_submit),
-                        tint = NovelHomeTokens.accent,
+                        tint = colors.primary,
                         modifier = Modifier.size(20.dp),
                     )
                 }
             },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = NovelHomeTokens.text,
-                unfocusedTextColor = NovelHomeTokens.text,
-                cursorColor = NovelHomeTokens.accent,
-                focusedBorderColor = NovelHomeTokens.accent,
-                unfocusedBorderColor = NovelHomeTokens.chipSurface,
-                focusedContainerColor = NovelHomeTokens.surface,
-                unfocusedContainerColor = NovelHomeTokens.surface,
+                focusedTextColor = colors.onBackground,
+                unfocusedTextColor = colors.onBackground,
+                cursorColor = colors.primary,
+                focusedBorderColor = colors.primary,
+                unfocusedBorderColor = colors.primary.copy(alpha = 0.16f),
+                focusedContainerColor = colors.surfaceVariant,
+                unfocusedContainerColor = colors.surfaceVariant,
             ),
         )
     }
@@ -234,12 +232,12 @@ private fun HomeTopBar(
             Icon(
                 painter = painterResource(R.drawable.ic_baseline_menu_24),
                 contentDescription = stringResource(R.string.home_open_drawer),
-                tint = NovelHomeTokens.text,
+                tint = colors.icon,
             )
         }
         Text(
             text = stringResource(R.string.app_name),
-            color = NovelHomeTokens.text,
+            color = colors.onBackground,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -250,7 +248,7 @@ private fun HomeTopBar(
             Icon(
                 painter = painterResource(R.drawable.search_icon),
                 contentDescription = stringResource(R.string.home_open_search),
-                tint = NovelHomeTokens.text,
+                tint = colors.icon,
                 modifier = Modifier.size(21.dp),
             )
         }
@@ -258,7 +256,7 @@ private fun HomeTopBar(
             Icon(
                 painter = painterResource(R.drawable.ic_baseline_account_circle_24),
                 contentDescription = stringResource(R.string.home_open_account),
-                tint = NovelHomeTokens.text,
+                tint = colors.icon,
                 modifier = Modifier.size(24.dp),
             )
         }
@@ -273,15 +271,15 @@ private fun ContinueReadingCard(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = stringResource(R.string.home_continue_reading),
-            color = NovelHomeTokens.text,
+            color = colors.onBackground,
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(NovelHomeTokens.cardShape)
-                .background(NovelHomeTokens.surface)
+                .clip(NovelHomeStyle.cardShape)
+                .background(colors.surfaceVariant)
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -300,7 +298,7 @@ private fun ContinueReadingCard(
             ) {
                 Text(
                     text = item.novel.name,
-                    color = NovelHomeTokens.text,
+                    color = colors.onBackground,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
@@ -319,14 +317,14 @@ private fun ContinueReadingCard(
                 }
                 Text(
                     text = chapterLabel,
-                    color = NovelHomeTokens.mutedText,
+                    color = colors.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = stringResource(R.string.home_from_provider_format, item.novel.apiName),
-                    color = NovelHomeTokens.mutedText,
+                    color = colors.onSurfaceVariant,
                     fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -341,89 +339,122 @@ private fun ContinueReadingCard(
 }
 
 @Composable
-private fun NovelCarousel(
-    title: String,
-    state: HomeCarouselState<SearchResponse>,
-    pageTarget: HomePageTarget?,
-    emptyMessage: String,
-    errorMessage: String,
-    onOpenNovel: (String, String) -> Unit,
-    onSeeMore: (HomePageTarget) -> Unit,
+private fun PopularSection(
+    signedIn: Boolean,
+    posts: HomeCarouselState<DiscoverPost>,
+    onOpenPost: (DiscoverPost) -> Unit,
+    onSearchTag: (String) -> Unit,
+    onVote: (DiscoverPost, Int) -> Unit,
+    onSeeMore: () -> Unit,
+    onSignIn: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    if (state is HomeCarouselState.Hidden) return
-
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(
-            title = title,
-            onSeeMore = pageTarget?.let { target -> { onSeeMore(target) } },
+            title = stringResource(R.string.home_popular),
+            onSeeMore = if (signedIn) onSeeMore else null,
         )
-        when (state) {
+        if (!signedIn) {
+            PopularSignInCard(onSignIn)
+            return@Column
+        }
+        when (posts) {
             HomeCarouselState.Loading -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeTokens.cardGap)) {
-                    items(3) { index -> NovelSkeletonCard(key = index) }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeStyle.cardGap)) {
+                    items(2) { PopularSkeletonCard() }
                 }
             }
             is HomeCarouselState.Loaded -> {
-                if (state.items.isEmpty()) {
-                    HomeMessage(emptyMessage)
+                if (posts.items.isEmpty()) {
+                    HomeMessage(stringResource(R.string.home_popular_empty))
                 } else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeTokens.cardGap)) {
-                        items(state.items, key = { "${it.apiName}:${it.url}" }) { novel ->
-                            NovelCard(novel) { onOpenNovel(novel.url, novel.apiName) }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeStyle.cardGap)) {
+                        items(posts.items, key = { it.id }) { post ->
+                            PopularPostCard(
+                                post = post,
+                                onClick = { onOpenPost(post) },
+                                onSearchTag = onSearchTag,
+                                onVote = { value -> onVote(post, value) },
+                            )
                         }
                     }
                 }
             }
-            HomeCarouselState.Empty -> HomeMessage(emptyMessage)
-            HomeCarouselState.Error -> HomeError(errorMessage, onRetry)
+            HomeCarouselState.Empty -> HomeMessage(stringResource(R.string.home_popular_empty))
+            HomeCarouselState.Error -> HomeError(
+                stringResource(R.string.home_popular_error),
+                onRetry,
+            )
             HomeCarouselState.Hidden -> Unit
         }
     }
 }
 
 @Composable
-private fun CommunityCarousel(
-    state: HomeCarouselState<DiscoverPost>,
+private fun PopularSignInCard(onSignIn: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(NovelHomeStyle.smallCardShape)
+            .background(colors.surfaceVariant)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.home_popular_sign_in),
+            color = colors.onBackground,
+            fontSize = 13.sp,
+        )
+        PillButton(
+            text = stringResource(R.string.sign_in),
+            onClick = onSignIn,
+        )
+    }
+}
+
+@Composable
+private fun RandomSection(
+    random: RandomNovelsState,
     onOpenNovel: (String, String) -> Unit,
-    onSearchTag: (String) -> Unit,
-    onSeeMore: () -> Unit,
+    onShuffle: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    if (state is HomeCarouselState.Hidden) return
-
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(
-            title = stringResource(R.string.home_from_community),
-            onSeeMore = onSeeMore,
-        )
-        when (state) {
-            HomeCarouselState.Loading -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeTokens.cardGap)) {
-                    items(2) { index -> CommunitySkeletonCard(key = index) }
-                }
-            }
-            is HomeCarouselState.Loaded -> {
-                if (state.items.isEmpty()) {
-                    HomeMessage(stringResource(R.string.home_community_empty))
-                } else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeTokens.cardGap)) {
-                        items(state.items, key = { it.id }) { post ->
-                            CommunityPostCard(
-                                post = post,
-                                onClick = { onOpenNovel(post.novelUrl, post.provider) },
-                                onSearchTag = onSearchTag,
-                            )
-                        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.home_random),
+                color = colors.onBackground,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            PillButton(
+                text = stringResource(R.string.home_random_shuffle),
+                onClick = onShuffle,
+                subtle = true,
+            )
+        }
+        when {
+            random.items.isNotEmpty() -> {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeStyle.cardGap)) {
+                    items(random.items, key = { "${it.apiName}:${it.url}" }) { novel ->
+                        NovelCard(novel) { onOpenNovel(novel.url, novel.apiName) }
                     }
                 }
             }
-            HomeCarouselState.Empty -> HomeMessage(stringResource(R.string.home_community_empty))
-            HomeCarouselState.Error -> HomeError(
-                stringResource(R.string.home_community_error),
+            random.loading -> {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(NovelHomeStyle.cardGap)) {
+                    items(3) { NovelSkeletonCard() }
+                }
+            }
+            random.failedSources.isNotEmpty() -> HomeError(
+                stringResource(
+                    R.string.home_random_error_format,
+                    random.failedSources.joinToString(", "),
+                ),
                 onRetry,
             )
-            HomeCarouselState.Hidden -> Unit
+            else -> HomeMessage(stringResource(R.string.home_random_empty))
         }
     }
 }
@@ -436,7 +467,7 @@ private fun SectionHeader(
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = title,
-            color = NovelHomeTokens.text,
+            color = colors.onBackground,
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
@@ -459,8 +490,8 @@ private fun NovelCard(
     Column(
         modifier = Modifier
             .width(146.dp)
-            .clip(NovelHomeTokens.cardShape)
-            .background(NovelHomeTokens.surface)
+            .clip(NovelHomeStyle.cardShape)
+            .background(colors.surfaceVariant)
             .clickable(onClick = onClick)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -475,7 +506,7 @@ private fun NovelCard(
         )
         Text(
             text = novel.name,
-            color = NovelHomeTokens.text,
+            color = colors.onBackground,
             fontSize = 13.sp,
             lineHeight = 17.sp,
             fontWeight = FontWeight.Medium,
@@ -486,7 +517,7 @@ private fun NovelCard(
         novel.latestChapter?.takeIf { it.isNotBlank() }?.let { chapter ->
             Text(
                 text = stringResource(R.string.latest_format, chapter),
-                color = NovelHomeTokens.mutedText,
+                color = colors.onSurfaceVariant,
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -494,7 +525,7 @@ private fun NovelCard(
         }
         Text(
             text = stringResource(R.string.home_from_provider_format, novel.apiName),
-            color = NovelHomeTokens.mutedText,
+            color = colors.onSurfaceVariant,
             fontSize = 10.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -503,16 +534,17 @@ private fun NovelCard(
 }
 
 @Composable
-private fun CommunityPostCard(
+private fun PopularPostCard(
     post: DiscoverPost,
     onClick: () -> Unit,
     onSearchTag: (String) -> Unit,
+    onVote: (Int) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .width(244.dp)
-            .clip(NovelHomeTokens.cardShape)
-            .background(NovelHomeTokens.surface)
+            .clip(NovelHomeStyle.cardShape)
+            .background(colors.surfaceVariant)
             .clickable(onClick = onClick)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -528,55 +560,65 @@ private fun CommunityPostCard(
                     .width(58.dp)
                     .height(78.dp),
             )
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = post.novelTitle,
-                    color = NovelHomeTokens.text,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = stringResource(R.string.home_community_author_format, post.authorName),
-                    color = NovelHomeTokens.mutedText,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                text = post.novelTitle,
+                color = colors.onBackground,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        post.tags.firstOrNull()?.let { tag ->
+            TagChip(label = tag, onClick = { onSearchTag(tag) })
         }
         Text(
             text = post.body,
-            color = NovelHomeTokens.mutedText,
+            color = colors.onSurfaceVariant,
             fontSize = 12.sp,
             lineHeight = 16.sp,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
-        addedAge(post.createdAt, System.currentTimeMillis())?.let { AddedAgeLabel(it) }
-        post.tags.firstOrNull()?.let { tag ->
-            TagChip(label = tag, onClick = { onSearchTag(tag) })
+        Text(
+            text = stringResource(R.string.home_community_author_format, post.authorName),
+            color = colors.onSurfaceVariant,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                addedAge(post.createdAt, System.currentTimeMillis())?.let { AddedAgeLabel(it) }
+            }
+            VoteControl(
+                score = post.score,
+                myVote = post.myVote,
+                onVote = onVote,
+            )
         }
     }
 }
 
 @Composable
-private fun NovelSkeletonCard(key: Int) {
+private fun NovelSkeletonCard() {
     Column(
         modifier = Modifier
             .width(146.dp)
-            .clip(NovelHomeTokens.cardShape)
-            .background(NovelHomeTokens.surface)
+            .clip(NovelHomeStyle.cardShape)
+            .background(colors.surfaceVariant)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(
+        SkeletonBlock(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(156.dp)
-                .clip(NovelHomeTokens.coverShape)
-                .background(if (key % 2 == 0) NovelHomeTokens.elevatedSurface else NovelHomeTokens.chipSurface),
+                .clip(NovelHomeStyle.coverShape),
         )
         SkeletonLine(width = 112.dp)
         SkeletonLine(width = 86.dp)
@@ -584,22 +626,21 @@ private fun NovelSkeletonCard(key: Int) {
 }
 
 @Composable
-private fun CommunitySkeletonCard(key: Int) {
+private fun PopularSkeletonCard() {
     Column(
         modifier = Modifier
             .width(244.dp)
-            .clip(NovelHomeTokens.cardShape)
-            .background(NovelHomeTokens.surface)
+            .clip(NovelHomeStyle.cardShape)
+            .background(colors.surfaceVariant)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(
+            SkeletonBlock(
                 modifier = Modifier
                     .width(58.dp)
                     .height(78.dp)
-                    .clip(NovelHomeTokens.coverShape)
-                    .background(if (key == 0) NovelHomeTokens.elevatedSurface else NovelHomeTokens.chipSurface),
+                    .clip(NovelHomeStyle.coverShape),
             )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SkeletonLine(width = 130.dp)
@@ -612,13 +653,19 @@ private fun CommunitySkeletonCard(key: Int) {
 }
 
 @Composable
-private fun SkeletonLine(width: androidx.compose.ui.unit.Dp) {
+private fun SkeletonBlock(modifier: Modifier = Modifier) {
     Box(
+        modifier = modifier.background(colors.onBackground.copy(alpha = 0.08f)),
+    )
+}
+
+@Composable
+private fun SkeletonLine(width: Dp) {
+    SkeletonBlock(
         modifier = Modifier
             .width(width)
             .height(10.dp)
-            .clip(RoundedCornerShape(50))
-            .background(NovelHomeTokens.elevatedSurface),
+            .clip(RoundedCornerShape(50)),
     )
 }
 
@@ -644,7 +691,7 @@ private fun AddedAgeLabel(age: AddedAge) {
     }
     Text(
         text = label,
-        color = NovelHomeTokens.mutedText,
+        color = colors.onSurfaceVariant,
         fontSize = 10.sp,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -658,13 +705,13 @@ private fun TagChip(
 ) {
     Text(
         text = label,
-        color = NovelHomeTokens.accent,
+        color = colors.onBackground,
         fontSize = 10.sp,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier
-            .clip(NovelHomeTokens.chipShape)
-            .background(NovelHomeTokens.chipSurface)
+            .clip(NovelHomeStyle.chipShape)
+            .background(colors.primary.copy(alpha = 0.16f))
             .then(
                 if (onClick != null) {
                     Modifier.clickable(onClick = onClick).semantics { role = Role.Button }
@@ -673,8 +720,8 @@ private fun TagChip(
                 },
             )
             .padding(
-                horizontal = NovelHomeTokens.chipHorizontalPadding,
-                vertical = NovelHomeTokens.chipVerticalPadding,
+                horizontal = NovelHomeStyle.chipHorizontalPadding,
+                vertical = NovelHomeStyle.chipVerticalPadding,
             ),
     )
 }
@@ -682,13 +729,13 @@ private fun TagChip(
 @Composable
 private fun HomeMessage(message: String) {
     Surface(
-        color = NovelHomeTokens.surface,
-        shape = NovelHomeTokens.smallCardShape,
+        color = colors.surfaceVariant,
+        shape = NovelHomeStyle.smallCardShape,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
             text = message,
-            color = NovelHomeTokens.mutedText,
+            color = colors.onSurfaceVariant,
             fontSize = 13.sp,
             modifier = Modifier.padding(14.dp),
         )
@@ -703,15 +750,15 @@ private fun HomeError(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(NovelHomeTokens.smallCardShape)
-            .background(NovelHomeTokens.surface)
+            .clip(NovelHomeStyle.smallCardShape)
+            .background(colors.surfaceVariant)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             text = message,
-            color = NovelHomeTokens.mutedText,
+            color = colors.ongoing,
             fontSize = 13.sp,
             modifier = Modifier.weight(1f),
         )
@@ -731,13 +778,13 @@ private fun PillButton(
 ) {
     Text(
         text = text,
-        color = if (subtle) NovelHomeTokens.accent else NovelHomeTokens.accentText,
+        color = if (subtle) colors.onBackground else Color.White,
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
         maxLines = 1,
         modifier = Modifier
-            .clip(NovelHomeTokens.pillShape)
-            .background(if (subtle) NovelHomeTokens.chipSurface else NovelHomeTokens.accent)
+            .clip(NovelHomeStyle.pillShape)
+            .background(if (subtle) colors.primary.copy(alpha = 0.16f) else colors.primary)
             .clickable(onClick = onClick)
             .semantics { role = Role.Button }
             .padding(horizontal = 13.dp, vertical = 8.dp),
@@ -763,8 +810,8 @@ private fun NovelCover(
     }
     Box(
         modifier = modifier
-            .clip(NovelHomeTokens.coverShape)
-            .background(NovelHomeTokens.elevatedSurface),
+            .clip(NovelHomeStyle.coverShape)
+            .background(colors.onBackground.copy(alpha = 0.08f)),
     ) {
         AsyncImage(
             model = request,
@@ -775,91 +822,147 @@ private fun NovelCover(
     }
 }
 
-@Preview(name = "Home · loading", showBackground = true, backgroundColor = 0xFF071321)
-@Composable
-private fun NovelHomeLoadingPreview() {
-    NovelHomeScreen(
-        state = HomeUiState(
-            newNovels = HomeCarouselState.Loading,
-            popularNovels = HomeCarouselState.Loading,
-            communityPosts = HomeCarouselState.Loading,
+private fun previewPost(
+    id: String = "preview-post",
+    score: Int = 1234,
+    myVote: Int = 1,
+) = DiscoverPost(
+    id = id,
+    userId = "preview-user",
+    authorName = "Reader",
+    provider = "Preview provider",
+    novelUrl = "https://example.invalid/novel",
+    novelTitle = "A community favorite",
+    coverUrl = null,
+    body = "A warm, thoughtful recommendation for readers who like a slow-burn mystery.",
+    rating = 5,
+    tags = listOf("Mystery"),
+    createdAt = 0L,
+    score = score,
+    myVote = myVote,
+)
+
+private fun previewNovel(name: String) = SearchResponse(
+    name = name,
+    url = "https://example.invalid/novel",
+    latestChapter = "Chapter 42",
+    apiName = "Preview provider",
+    rating = 5,
+)
+
+private fun previewState(
+    signedIn: Boolean = true,
+    popularPosts: HomeCarouselState<DiscoverPost> = HomeCarouselState.Loaded(
+        listOf(previewPost(), previewPost(id = "preview-post-2", score = 12, myVote = 0)),
+    ),
+    randomNovels: RandomNovelsState = RandomNovelsState(
+        loading = false,
+        items = listOf(
+            previewNovel("The Lanterns Beyond the Northern Sea"),
+            previewNovel("A Study in Starlight"),
         ),
-    )
+    ),
+) = HomeUiState(
+    continueReading = ContinueReadingItem(
+        novel = ResultCached(
+            source = "https://example.invalid/novel",
+            name = "A Quiet Reincarnation",
+            apiName = "Preview provider",
+            id = 1,
+            author = null,
+            poster = null,
+            tags = listOf("Fantasy"),
+            rating = 5,
+            totalChapters = 42,
+            cachedTime = 0L,
+        ),
+        chapterName = "Chapter 18",
+        chapterNumber = 18,
+    ),
+    signedIn = signedIn,
+    popularPosts = popularPosts,
+    randomNovels = randomNovels,
+)
+
+@Composable
+private fun NovelHomePreview(mode: CloudStreamThemeMode, state: HomeUiState) {
+    CloudStreamTheme(mode = mode, primaryColor = CloudStreamPrimaryColor.NORMAL) {
+        NovelHomeScreen(state = state)
+    }
 }
 
-@Preview(name = "Home · loaded", showBackground = true, backgroundColor = 0xFF071321)
+@Preview(name = "Home · loaded · Light", showBackground = true)
 @Composable
-private fun NovelHomeLoadedPreview() {
-    val sample = SearchResponse(
-        name = "The Lanterns Beyond the Northern Sea",
-        url = "https://example.invalid/novel",
-        latestChapter = "Chapter 42",
-        apiName = "Preview provider",
-        rating = 5,
+private fun NovelHomeLoadedLightPreview() =
+    NovelHomePreview(CloudStreamThemeMode.Light, previewState())
+
+@Preview(name = "Home · loaded · Amoled", showBackground = true)
+@Composable
+private fun NovelHomeLoadedAmoledPreview() =
+    NovelHomePreview(CloudStreamThemeMode.AmoledLight, previewState())
+
+@Preview(name = "Home · signed out · Light", showBackground = true)
+@Composable
+private fun NovelHomeSignedOutLightPreview() =
+    NovelHomePreview(
+        CloudStreamThemeMode.Light,
+        previewState(signedIn = false, popularPosts = HomeCarouselState.Hidden),
     )
-    NovelHomeScreen(
-        state = HomeUiState(
-            continueReading = ContinueReadingItem(
-                novel = ResultCached(
-                    source = "https://example.invalid/novel",
-                    name = "A Quiet Reincarnation",
-                    apiName = "Preview provider",
-                    id = 1,
-                    author = null,
-                    poster = null,
-                    tags = listOf("Fantasy"),
-                    rating = 5,
-                    totalChapters = 42,
-                    cachedTime = 0L,
-                ),
-                chapterName = "Chapter 18",
-                chapterNumber = 18,
+
+@Preview(name = "Home · signed out · Amoled", showBackground = true)
+@Composable
+private fun NovelHomeSignedOutAmoledPreview() =
+    NovelHomePreview(
+        CloudStreamThemeMode.AmoledLight,
+        previewState(signedIn = false, popularPosts = HomeCarouselState.Hidden),
+    )
+
+@Preview(name = "Home · loading · Light", showBackground = true)
+@Composable
+private fun NovelHomeLoadingLightPreview() =
+    NovelHomePreview(
+        CloudStreamThemeMode.Light,
+        previewState(
+            popularPosts = HomeCarouselState.Loading,
+            randomNovels = RandomNovelsState(loading = true),
+        ),
+    )
+
+@Preview(name = "Home · loading · Amoled", showBackground = true)
+@Composable
+private fun NovelHomeLoadingAmoledPreview() =
+    NovelHomePreview(
+        CloudStreamThemeMode.AmoledLight,
+        previewState(
+            popularPosts = HomeCarouselState.Loading,
+            randomNovels = RandomNovelsState(loading = true),
+        ),
+    )
+
+@Preview(name = "Home · error · Light", showBackground = true)
+@Composable
+private fun NovelHomeErrorLightPreview() =
+    NovelHomePreview(
+        CloudStreamThemeMode.Light,
+        previewState(
+            popularPosts = HomeCarouselState.Error,
+            randomNovels = RandomNovelsState(
+                loading = false,
+                failedSources = listOf("Preview provider"),
             ),
-            newNovels = HomeCarouselState.Loaded(listOf(sample, sample.copy(name = "A Quiet Reincarnation"))),
-            popularNovels = HomeCarouselState.Loaded(listOf(sample.copy(name = "A Study in Starlight"))),
-            newPage = HomePageTarget("Preview provider", -1, -1),
-            popularPage = HomePageTarget("Preview provider", -1, 1),
-            communityPosts = HomeCarouselState.Loaded(
-                listOf(
-                    DiscoverPost(
-                        id = "preview-post",
-                        userId = "preview-user",
-                        authorName = "Reader",
-                        provider = "Preview provider",
-                        novelUrl = "https://example.invalid/novel",
-                        novelTitle = "A community favorite",
-                        coverUrl = null,
-                        body = "A warm, thoughtful recommendation for readers who like a slow-burn mystery.",
-                        rating = 5,
-                        tags = listOf("Mystery"),
-                        createdAt = 0L,
-                    ),
-                ),
+        ),
+    )
+
+@Preview(name = "Home · error · Amoled", showBackground = true)
+@Composable
+private fun NovelHomeErrorAmoledPreview() =
+    NovelHomePreview(
+        CloudStreamThemeMode.AmoledLight,
+        previewState(
+            popularPosts = HomeCarouselState.Error,
+            randomNovels = RandomNovelsState(
+                loading = false,
+                failedSources = listOf("Preview provider"),
             ),
         ),
     )
-}
-
-@Preview(name = "Home · empty", showBackground = true, backgroundColor = 0xFF071321)
-@Composable
-private fun NovelHomeEmptyPreview() {
-    NovelHomeScreen(
-        state = HomeUiState(
-            newNovels = HomeCarouselState.Empty,
-            popularNovels = HomeCarouselState.Hidden,
-            communityPosts = HomeCarouselState.Empty,
-        ),
-    )
-}
-
-@Preview(name = "Home · error", showBackground = true, backgroundColor = 0xFF071321)
-@Composable
-private fun NovelHomeErrorPreview() {
-    NovelHomeScreen(
-        state = HomeUiState(
-            newNovels = HomeCarouselState.Error,
-            popularNovels = HomeCarouselState.Error,
-            communityPosts = HomeCarouselState.Error,
-        ),
-    )
-}

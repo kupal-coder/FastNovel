@@ -13,16 +13,9 @@ sealed interface HomeCarouselState<out T> {
 }
 
 enum class HomeCarousel {
-    New,
     Popular,
-    Community,
+    Random,
 }
-
-data class HomePageTarget(
-    val apiName: String,
-    val categoryIndex: Int,
-    val orderByIndex: Int,
-)
 
 data class ContinueReadingItem(
     val novel: ResultCached,
@@ -30,11 +23,19 @@ data class ContinueReadingItem(
     val chapterNumber: Int?,
 )
 
+/** Progressive results of one "Random novels" roll across the picked providers. */
+data class RandomNovelsState(
+    val loading: Boolean = true,
+    val items: List<SearchResponse> = emptyList(),
+    /** Providers that errored or timed out; only surfaced when no provider answered with novels. */
+    val failedSources: List<String> = emptyList(),
+)
+
 data class HomeUiState(
     val continueReading: ContinueReadingItem? = null,
-    val newNovels: HomeCarouselState<SearchResponse> = HomeCarouselState.Loading,
-    val popularNovels: HomeCarouselState<SearchResponse> = HomeCarouselState.Hidden,
-    val communityPosts: HomeCarouselState<DiscoverPost> = HomeCarouselState.Hidden,
-    val newPage: HomePageTarget? = null,
-    val popularPage: HomePageTarget? = null,
+    val signedIn: Boolean = false,
+    val popularPosts: HomeCarouselState<DiscoverPost> = HomeCarouselState.Hidden,
+    val randomNovels: RandomNovelsState = RandomNovelsState(),
+    /** One-shot snackbar message (@StringRes), consumed by the screen. */
+    val notice: Int? = null,
 )

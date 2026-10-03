@@ -24,15 +24,14 @@
     <string name="home_chapter_number_format">Chapter %1$d</string>
     <string name="home_ready_to_continue">Ready to continue</string>
     <string name="home_continue_button">Continue</string>
-    <string name="home_new_novels">New novels</string>
-    <string name="home_new_empty">No new novels found from your enabled sources.</string>
-    <string name="home_new_error">Couldn’t load new novels.</string>
     <string name="home_popular">Popular</string>
-    <string name="home_popular_empty">No popular novels are available right now.</string>
-    <string name="home_popular_error">Couldn’t load popular novels.</string>
-    <string name="home_from_community">From the community</string>
-    <string name="home_community_empty">No recent Discover posts.</string>
-    <string name="home_community_error">Couldn’t load Discover posts.</string>
+    <string name="home_popular_sign_in">Sign in to see the top community picks</string>
+    <string name="home_popular_empty">No community posts yet.</string>
+    <string name="home_popular_error">Couldn’t load the top community posts.</string>
+    <string name="home_random">Random novels</string>
+    <string name="home_random_shuffle">Shuffle</string>
+    <string name="home_random_empty">No random novels found from your enabled sources.</string>
+    <string name="home_random_error_format">Couldn’t load novels from %1$s.</string>
     <string name="home_community_author_format">by %1$s</string>
     <string name="home_from_provider_format">From %1$s</string>
     <string name="home_posted_just_now">Posted just now</string>
@@ -442,6 +441,13 @@
     <string name="discover_time_minutes">%d min ago</string>
     <string name="discover_time_hours">%d h ago</string>
     <string name="discover_time_days">%d d ago</string>
+    <string name="discover_sort_top">Top</string>
+    <string name="discover_sort_new">New</string>
+    <string name="discover_vote_up">Upvote</string>
+    <string name="discover_vote_down">Downvote</string>
+    <string name="discover_vote_own_post">You can\'t vote on your own post</string>
+    <string name="discover_vote_error">Couldn\'t save your vote</string>
+    <string name="discover_cannot_open_novel">Can\'t open this novel</string>
 
     <!-- Tag search -->
     <string name="tag_search_unsupported">This tag isn’t supported by any enabled provider.</string>
