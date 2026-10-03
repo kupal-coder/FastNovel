@@ -16,7 +16,9 @@ import androidx.activity.viewModels
 import androidx.annotation.IdRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.GravityCompat
 import androidx.core.view.isVisible
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
@@ -31,6 +33,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.navigation.NavigationView
 import com.lagradost.nicehttp.Requests
 import com.lagradost.nicehttp.ResponseParser
 import com.lagradost.nicehttp.ignoreAllSSLErrors
@@ -522,6 +525,7 @@ class MainActivity : AppCompatActivity() {
 
         val isNavVisible = listOf(
             R.id.navigation_mainpage,
+            R.id.navigation_novel_home,
             R.id.navigation_homepage,
             R.id.navigation_history,
             R.id.navigation_download,
@@ -557,10 +561,23 @@ class MainActivity : AppCompatActivity() {
         val navHostFragment =
             supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
         val navController = navHostFragment.navController
+        val drawerLayout: DrawerLayout = findViewById(R.id.main_drawer)
+        val drawerNavigationView: NavigationView = findViewById(R.id.drawer_navigation)
 
+        // One activity-level drawer serves every destination without changing existing screen layouts or bottom-nav routing.
         navController.addOnDestinationChangedListener { _: NavController, navDestination: NavDestination, bundle: Bundle? ->
-            // Intercept search and add a query
             updateNavBar(navDestination)
+            val drawerItem = when (navDestination.id) {
+                R.id.navigation_novel_home -> R.id.navigation_novel_home
+                R.id.navigation_download -> R.id.navigation_download
+                R.id.navigation_homepage -> R.id.navigation_homepage
+                R.id.navigation_search -> R.id.navigation_search
+                R.id.navigation_discover -> R.id.navigation_discover
+                R.id.navigation_history -> R.id.navigation_history
+                R.id.navigation_settings -> R.id.navigation_settings
+                else -> null
+            }
+            if (drawerItem != null) drawerNavigationView.setCheckedItem(drawerItem)
             /*if (navDestination.matchDestination(R.id.navigation_search) && !nextSearchQuery.isNullOrBlank()) {
                 bundle?.apply {
                     this.putString(SearchFragment.SEARCH_QUERY, nextSearchQuery)
@@ -572,6 +589,12 @@ class MainActivity : AppCompatActivity() {
                     attachBackPressedCallback()
                 } else detachBackPressedCallback()
             }*/
+        }
+
+        drawerNavigationView.setNavigationItemSelectedListener { item ->
+            val navigated = onNavDestinationSelected(item, navController)
+            drawerLayout.closeDrawer(GravityCompat.START)
+            navigated
         }
 
         val navView: BottomNavigationView = findViewById(R.id.nav_view)

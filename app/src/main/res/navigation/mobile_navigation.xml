@@ -5,9 +5,14 @@
             android:id="@+id/mobile_navigation"
             app:startDestination="@+id/navigation_download">
     <fragment
+            android:id="@+id/navigation_novel_home"
+            android:name="com.lagradost.quicknovel.ui.home.NovelHomeFragment"
+            android:label="@string/home_drawer_home"
+            android:layout_height="match_parent" />
+    <fragment
             android:id="@+id/navigation_homepage"
             android:name="com.lagradost.quicknovel.ui.home.HomeFragment"
-            android:label="@string/title_home"
+            android:label="@string/title_sources"
             android:layout_height="match_parent"
             tools:layout="@layout/fragment_home">
     </fragment>

@@ -21,7 +21,7 @@
             app:layout_scrollFlags="scroll|enterAlways"
             app:menu="@menu/home_actionbar"
             app:navigationIconTint="?attr/iconColor"
-            app:title="@string/explore"
+            app:title="@string/title_sources"
             app:titleTextColor="?attr/textColor" />
     </com.google.android.material.appbar.AppBarLayout>
 
