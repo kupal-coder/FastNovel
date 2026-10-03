@@ -168,7 +168,7 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
             val popularTarget = popularSelection?.let { pageTarget(latest.api, it) }
             mutableState.update {
                 it.copy(
-                    newNovels = latest.items.toCarouselState(),
+                    newNovels = latest.items.toNovelCarouselState(),
                     popularNovels = if (popularTarget == null) {
                         HomeCarouselState.Hidden
                     } else {
@@ -239,7 +239,7 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
                 mutableState.update { it.copy(popularNovels = HomeCarouselState.Error) }
                 return@launch
             }
-            mutableState.update { it.copy(popularNovels = page.list.toCarouselState()) }
+            mutableState.update { it.copy(popularNovels = page.list.toNovelCarouselState()) }
         }
     }
 
@@ -288,7 +288,7 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
                         refreshCommunityForCurrentSession()
                         return@launch
                     }
-                    mutableState.update { it.copy(communityPosts = result.value.toCarouselState()) }
+                    mutableState.update { it.copy(communityPosts = result.value.toPostCarouselState()) }
                 }
                 is DiscoverResult.Failure -> {
                     val activeUserId = currentUserId()
@@ -313,10 +313,10 @@ class NovelHomeViewModel(application: Application) : AndroidViewModel(applicatio
         orderByIndex = selection.orderByIndex,
     )
 
-    private fun List<SearchResponse>.toCarouselState(): HomeCarouselState<SearchResponse> =
+    private fun List<SearchResponse>.toNovelCarouselState(): HomeCarouselState<SearchResponse> =
         if (isEmpty()) HomeCarouselState.Empty else HomeCarouselState.Loaded(this)
 
-    private fun List<DiscoverPost>.toCarouselState(): HomeCarouselState<DiscoverPost> =
+    private fun List<DiscoverPost>.toPostCarouselState(): HomeCarouselState<DiscoverPost> =
         if (isEmpty()) HomeCarouselState.Empty else HomeCarouselState.Loaded(this)
 
     private data class LatestProviderPage(
