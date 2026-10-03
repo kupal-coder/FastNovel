@@ -332,7 +332,7 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
         val writer = state.value.writer ?: return
         val novel = writer.novel ?: return
         val userId = state.value.userId ?: return
-        if (!writer.canPost || !currentQuery(userId, state.value.selectedTag)) return
+        if (!writer.canPost || !currentQuery(userId, state.value.selectedTag, state.value.sort)) return
         mutableState.update { it.copy(writer = writer.copy(posting = true, error = null)) }
         mutationJob = viewModelScope.launch {
             val result = DiscoverApi.create(context, novel, writer.body, writer.rating, writer.tags)
@@ -353,7 +353,7 @@ class DiscoverViewModel(application: Application) : AndroidViewModel(application
         val before = state.value
         val post = before.confirmation ?: return
         val userId = before.userId ?: return
-        if (before.actionBusy || !currentQuery(userId, before.selectedTag)) return
+        if (before.actionBusy || !currentQuery(userId, before.selectedTag, before.sort)) return
         val own = post.userId == userId
         mutableState.update { it.copy(actionBusy = true, actionError = null) }
         mutationJob = viewModelScope.launch {

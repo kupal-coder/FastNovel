@@ -205,8 +205,9 @@ object DiscoverApi {
         val userId = SupabaseAuth.currentUserId(context) ?: return VoteError.SignIn
         return withContext(Dispatchers.IO) {
             try {
-                val token = SupabaseAuth.getValidAccessToken(context) ?: return@withContext
-                    if (SupabaseAuth.isLoggedIn(context)) VoteError.Offline else VoteError.SignIn
+                val token = SupabaseAuth.getValidAccessToken(context) ?: return@withContext (
+                        if (SupabaseAuth.isLoggedIn(context)) VoteError.Offline else VoteError.SignIn
+                        )
                 val response = if (value == 0) {
                     SupabaseAuth.requestJson(
                         "DELETE", baseUrl + voteRemovePath(postId, userId), null, token, null,
