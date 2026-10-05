@@ -4,7 +4,6 @@ import com.lagradost.quicknovel.MainAPI
 import com.lagradost.quicknovel.SearchResponse
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,19 +22,6 @@ class NovelHomeLogicTest {
 
         assertEquals(HomePageSelection(0, 1), latestPageSelection(newest))
         assertEquals(HomePageSelection(1, -1), latestPageSelection(fallback))
-    }
-
-    @Test
-    fun relativeAgeHandlesMissingFutureAndUnitBoundaries() {
-        val now = 300_000_000L
-
-        assertNull(addedAge(null, now))
-        assertNull(addedAge(0L, now))
-        assertEquals(AddedAge(0, AddedAgeUnit.JustNow), addedAge(now + 1L, now))
-        assertEquals(AddedAge(0, AddedAgeUnit.JustNow), addedAge(now, now))
-        assertEquals(AddedAge(1, AddedAgeUnit.Minutes), addedAge(now - 60_000L, now))
-        assertEquals(AddedAge(1, AddedAgeUnit.Hours), addedAge(now - 3_600_000L, now))
-        assertEquals(AddedAge(2, AddedAgeUnit.Days), addedAge(now - 2 * 86_400_000L, now))
     }
 
     @Test

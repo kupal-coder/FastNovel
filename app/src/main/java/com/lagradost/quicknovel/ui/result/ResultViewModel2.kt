@@ -27,7 +27,6 @@ import com.lagradost.quicknovel.R
 import com.lagradost.quicknovel.RESULT_BOOKMARK
 import com.lagradost.quicknovel.RESULT_BOOKMARK_STATE
 import com.lagradost.quicknovel.RESULT_SORTING_METHOD
-import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.compose.ActionHandler
 import com.lagradost.quicknovel.compose.DefaultEffectContainer
 import com.lagradost.quicknovel.compose.DefaultStateContainer
@@ -304,7 +303,6 @@ class ResultViewModel2(
                     setBookmarkState(id, action.type)
                     setBookmarkData(id, response)
                     BookDownloader2.bookmarkChanged(id)
-                    LibrarySync.onItemChanged(id)
                 }
             }
         }
@@ -409,7 +407,6 @@ class ResultViewModel2(
                     setKey(
                         EPUB_CURRENT_POSITION_SCROLL_CHAR, action.response.name, 0,
                     )
-                    LibrarySync.onProgressChanged(action.response.name)
 
                     openQuickStream(uri)
                 } catch (t: Throwable) {

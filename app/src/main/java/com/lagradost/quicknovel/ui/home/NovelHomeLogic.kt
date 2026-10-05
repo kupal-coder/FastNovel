@@ -17,18 +17,6 @@ data class HomePageSelection(
     val orderByIndex: Int,
 )
 
-internal enum class AddedAgeUnit {
-    JustNow,
-    Minutes,
-    Hours,
-    Days,
-}
-
-internal data class AddedAge(
-    val amount: Int,
-    val unit: AddedAgeUnit,
-)
-
 /** Chooses the provider's newest/recent option, falling back to its default page filters. */
 internal fun latestPageSelection(api: MainAPI): HomePageSelection {
     val categoryIndex = api.mainCategories.indexOfFirst { it.first.isLatestOrder() }
@@ -79,31 +67,6 @@ internal fun mergeRandomNovels(
         .distinctBy { it.apiName to it.url }
         .shuffled(random)
         .take(limit)
-
-/** Relative-age parts for a provider-supplied timestamp. A missing date stays hidden in the UI. */
-internal fun addedAge(
-    addedAtMillis: Long?,
-    nowMillis: Long,
-): AddedAge? {
-    if (addedAtMillis == null || addedAtMillis <= 0L) return null
-
-    val elapsedMillis = (nowMillis - addedAtMillis).coerceAtLeast(0L)
-    return when {
-        elapsedMillis < MILLIS_PER_MINUTE -> AddedAge(0, AddedAgeUnit.JustNow)
-        elapsedMillis < MILLIS_PER_HOUR -> AddedAge(
-            (elapsedMillis / MILLIS_PER_MINUTE).toInt(),
-            AddedAgeUnit.Minutes,
-        )
-        elapsedMillis < MILLIS_PER_DAY -> AddedAge(
-            (elapsedMillis / MILLIS_PER_HOUR).toInt(),
-            AddedAgeUnit.Hours,
-        )
-        else -> AddedAge(
-            (elapsedMillis / MILLIS_PER_DAY).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            AddedAgeUnit.Days,
-        )
-    }
-}
 
 private fun String.isLatestOrder(): Boolean {
     val label = lowercase(Locale.ROOT)
@@ -174,7 +137,3 @@ private val ALL_CATEGORY_LABELS = setOf(
     "todas",
     "все",
 )
-
-private const val MILLIS_PER_MINUTE = 60_000L
-private const val MILLIS_PER_HOUR = 60 * MILLIS_PER_MINUTE
-private const val MILLIS_PER_DAY = 24 * MILLIS_PER_HOUR

@@ -531,7 +531,6 @@ class MainActivity : AppCompatActivity() {
             R.id.navigation_download,
             R.id.navigation_search,
             R.id.navigation_settings,
-            R.id.navigation_discover,
         ).contains(destination.id)
 
         binding?.apply {
@@ -572,7 +571,6 @@ class MainActivity : AppCompatActivity() {
                 R.id.navigation_download -> R.id.navigation_download
                 R.id.navigation_homepage -> R.id.navigation_homepage
                 R.id.navigation_search -> R.id.navigation_search
-                R.id.navigation_discover -> R.id.navigation_discover
                 R.id.navigation_history -> R.id.navigation_history
                 R.id.navigation_settings -> R.id.navigation_settings
                 else -> null

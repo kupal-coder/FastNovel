@@ -41,14 +41,12 @@ import com.lagradost.quicknovel.BaseApplication.Companion.removeKey
 import com.lagradost.quicknovel.BaseApplication.Companion.setKey
 import com.lagradost.quicknovel.BaseApplication.Companion.setKeyClass
 import com.lagradost.quicknovel.BookDownloader2Helper.getQuickChapter
-import com.lagradost.quicknovel.auth.LibrarySync
 import com.lagradost.quicknovel.CommonActivity.TAG
 import com.lagradost.quicknovel.CommonActivity.activity
 import com.lagradost.quicknovel.CommonActivity.showToast
 import com.lagradost.quicknovel.TTSHelper.parseTextToSpans
 import com.lagradost.quicknovel.TTSHelper.preParseHtml
 import com.lagradost.quicknovel.TTSHelper.ttsParseText
-import com.lagradost.quicknovel.auth.ReadingStats
 import com.lagradost.quicknovel.mvvm.Resource
 import com.lagradost.quicknovel.mvvm.letInner
 import com.lagradost.quicknovel.mvvm.logError
@@ -1638,7 +1636,6 @@ class ReadActivityViewModel : ViewModel() {
 
     private fun setScrollKeys(scrollIndex: ScrollIndex) {
         val readAtPath = "${book.title()}/${scrollIndex.index}"
-        val alreadyRead = getKey<Long>(EPUB_CURRENT_POSITION_READ_AT, readAtPath) != null
 
         setKey(
             EPUB_CURRENT_POSITION_READ_AT,
@@ -1652,7 +1649,6 @@ class ReadActivityViewModel : ViewModel() {
             scrollIndex.char
         )
         setKey(EPUB_CURRENT_POSITION, book.title(), scrollIndex.index)
-        LibrarySync.onProgressChanged(book.title())
 
         context?.let {
             setKey(
@@ -1660,16 +1656,6 @@ class ReadActivityViewModel : ViewModel() {
                 book.title(),
                 book.getChapterTitle(scrollIndex.index).asString(it)
             )
-        }
-
-        // Only the first transition from unread to read counts as progress.
-        if (!alreadyRead) {
-            context?.let { ctx ->
-                ReadingStats.recordChapterRead(ctx)
-                if (scrollIndex.index == book.size() - 1) {
-                    ReadingStats.recordNovelFinished(ctx, book.title())
-                }
-            }
         }
     }
 
@@ -1695,7 +1681,6 @@ class ReadActivityViewModel : ViewModel() {
         // set the keys
         setKey(EPUB_CURRENT_POSITION, book.title(), index)
         setKey(EPUB_CURRENT_POSITION_SCROLL_CHAR, book.title(), 0)
-        LibrarySync.onProgressChanged(book.title())
 
         // set the state
         desiredIndex = ScrollIndex(index, 0, 0)

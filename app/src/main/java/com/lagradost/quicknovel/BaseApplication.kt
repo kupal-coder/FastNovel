@@ -4,8 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
-import android.os.Bundle
+import android.os.Build
 import androidx.work.Configuration
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -15,16 +14,10 @@ import com.lagradost.quicknovel.DataStore.getKeys
 import com.lagradost.quicknovel.DataStore.removeKey
 import com.lagradost.quicknovel.DataStore.removeKeys
 import com.lagradost.quicknovel.DataStore.setKey
-import com.lagradost.quicknovel.auth.LibrarySync
-import com.lagradost.quicknovel.auth.LoginActivity
-import com.lagradost.quicknovel.auth.ReadingStats
-import com.lagradost.quicknovel.auth.SupabaseAuth
+import java.io.File
 import java.lang.ref.WeakReference
 
 class BaseApplication : Application(), SingletonImageLoader.Factory, Configuration.Provider  {
-    /** Number of started activities, 0 means the app is in the background. */
-    private var startedActivities = 0
-
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
         context = base
@@ -33,50 +26,30 @@ class BaseApplication : Application(), SingletonImageLoader.Factory, Configurati
     override fun onCreate() {
         super.onCreate()
 
-        // Uploads anything that could not be uploaded when the app was closed last time.
-        ReadingStats.flushAsync(this)
+        clearRemovedCloudPreferences()
+    }
 
-        // Downloads the library of the signed in account and uploads what is pending. Guests
-        // are ignored inside the sync.
-        LibrarySync.syncAsync(this)
+    /**
+     * One-time cleanup for the preference files the removed cloud features used to keep, so no
+     * old account tokens or queued stats stay on the phone after updating. Guarded by a flag so
+     * it only runs once per install.
+     */
+    private fun clearRemovedCloudPreferences() {
+        val prefs = getSharedPreferences("app_cleanup", MODE_PRIVATE)
+        if (prefs.getBoolean("cloud_prefs_cleared", false)) return
+        deleteLegacyPreferences("supabase_auth")
+        deleteLegacyPreferences("library_sync_meta")
+        deleteLegacyPreferences("reading_stats_pending")
+        prefs.edit().putBoolean("cloud_prefs_cleared", true).apply()
+    }
 
-        // The reader reports the final position when it closes.
-        BookDownloader2.chapterReadChanged += LibrarySync::onChapterReadChanged
-
-        // Shows the login screen on top of MainActivity instead of touching MainActivity itself.
-        registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
-            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-                val showLogin = activity is MainActivity &&
-                        savedInstanceState == null &&
-                        SupabaseAuth.shouldShowLogin(activity)
-                if (showLogin) {
-                    activity.startActivity(Intent(activity, LoginActivity::class.java))
-                }
-            }
-
-            override fun onActivityStarted(activity: Activity) {
-                startedActivities++
-            }
-
-            override fun onActivityResumed(activity: Activity) {
-                // Shows a pending account switch question as soon as a screen is there.
-                LibrarySync.onActivityResumed(activity)
-            }
-
-            override fun onActivityPaused(activity: Activity) {}
-
-            override fun onActivityStopped(activity: Activity) {
-                startedActivities = (startedActivities - 1).coerceAtLeast(0)
-                // No activity is visible anymore, the app went to the background.
-                if (startedActivities == 0) {
-                    ReadingStats.flushAsync(activity)
-                    LibrarySync.flushAsync(activity)
-                }
-            }
-
-            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-            override fun onActivityDestroyed(activity: Activity) {}
-        })
+    private fun deleteLegacyPreferences(name: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            deleteSharedPreferences(name)
+        } else {
+            // deleteSharedPreferences arrived with API 24.
+            File(applicationInfo.dataDir, "shared_prefs/$name.xml").delete()
+        }
     }
 
     override fun newImageLoader(context: PlatformContext): coil3.ImageLoader {
