@@ -1,21 +1,7 @@
 package com.lagradost.quicknovel.ui.home
 
 import com.lagradost.quicknovel.SearchResponse
-import com.lagradost.quicknovel.discover.DiscoverPost
 import com.lagradost.quicknovel.util.ResultCached
-
-sealed interface HomeCarouselState<out T> {
-    data object Loading : HomeCarouselState<Nothing>
-    data class Loaded<T>(val items: List<T>) : HomeCarouselState<T>
-    data object Empty : HomeCarouselState<Nothing>
-    data object Error : HomeCarouselState<Nothing>
-    data object Hidden : HomeCarouselState<Nothing>
-}
-
-enum class HomeCarousel {
-    Popular,
-    Random,
-}
 
 data class ContinueReadingItem(
     val novel: ResultCached,
@@ -33,9 +19,5 @@ data class RandomNovelsState(
 
 data class HomeUiState(
     val continueReading: ContinueReadingItem? = null,
-    val signedIn: Boolean = false,
-    val popularPosts: HomeCarouselState<DiscoverPost> = HomeCarouselState.Hidden,
     val randomNovels: RandomNovelsState = RandomNovelsState(),
-    /** One-shot snackbar message (@StringRes), consumed by the screen. */
-    val notice: Int? = null,
 )

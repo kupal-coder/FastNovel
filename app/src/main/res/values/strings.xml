@@ -24,30 +24,11 @@
     <string name="home_chapter_number_format">Chapter %1$d</string>
     <string name="home_ready_to_continue">Ready to continue</string>
     <string name="home_continue_button">Continue</string>
-    <string name="home_popular">Popular</string>
-    <string name="home_popular_sign_in">Sign in to see the top community picks</string>
-    <string name="home_popular_empty">No community posts yet.</string>
-    <string name="home_popular_error">Couldn’t load the top community posts.</string>
     <string name="home_random">Random novels</string>
     <string name="home_random_shuffle">Shuffle</string>
     <string name="home_random_empty">No random novels found from your enabled sources.</string>
     <string name="home_random_error_format">Couldn’t load novels from %1$s.</string>
-    <string name="home_community_author_format">by %1$s</string>
     <string name="home_from_provider_format">From %1$s</string>
-    <string name="home_posted_just_now">Posted just now</string>
-    <plurals name="home_posted_minutes_ago">
-        <item quantity="one">Posted %1$d minute ago</item>
-        <item quantity="other">Posted %1$d minutes ago</item>
-    </plurals>
-    <plurals name="home_posted_hours_ago">
-        <item quantity="one">Posted %1$d hour ago</item>
-        <item quantity="other">Posted %1$d hours ago</item>
-    </plurals>
-    <plurals name="home_posted_days_ago">
-        <item quantity="one">Posted %1$d day ago</item>
-        <item quantity="other">Posted %1$d days ago</item>
-    </plurals>
-    <string name="home_see_more">See more</string>
     <string name="home_retry">Retry</string>
 
     <string name="locale_key" translatable="false">locale_key</string>
@@ -377,117 +358,11 @@
     <string name="less_spacing">Less Spacing</string>
     <string name="unable_to_inflate">UI was unable to be created correctly, this is a MAJOR BUG and should be reported immediately %s</string>
 
-    <string name="account">Account</string>
-    <string name="sign_in">Sign in</string>
-    <string name="sign_out">Sign out</string>
-    <string name="signed_in_as" formatted="true">Signed in as %s</string>
-    <string name="sign_out_confirm">Are you sure you want to sign out?</string>
-    <string name="username">Username</string>
-    <string name="username_not_set">Not set</string>
-    <string name="username_validation_error">Username must be 3 to 20 characters and contain only letters, digits, and underscores</string>
-    <string name="username_error_taken">That username is taken</string>
-    <string name="username_error_invalid">Invalid username</string>
     <string name="username_error_no_internet">No internet connection</string>
-    <string name="username_error_sign_in_again">Please sign in again</string>
-    <string name="reading_stats">Reading stats</string>
-    <string name="reading_stats_summary">%1$d chapters · %2$d novels · %3$dh %4$dm</string>
-    <string name="reading_stats_loading">Loading…</string>
-    <string name="reading_stats_offline">Not available offline</string>
-    <string name="library_sync">Library sync</string>
-    <string name="library_sync_not_synced">Not synced yet</string>
-    <string name="library_sync_last_synced" formatted="true">Last synced %s</string>
-    <string name="library_sync_description">Only the list of novels, their category and the reading position is synced. Downloaded chapters stay on this device.</string>
-    <string name="library_sync_upload_title">Upload library</string>
-    <string name="library_sync_upload_message" formatted="true">Upload this device\'s library to %s?</string>
-    <string name="library_sync_upload_unknown_account">this account</string>
-    <string name="library_sync_upload_merge">Merge</string>
-    <string name="library_sync_upload_skip">Don\'t upload</string>
-
-    <!-- Discover -->
-    <string name="title_discover">Discover</string>
-    <string name="discover_sign_in_required">Sign in to read and share short opinions about novels.</string>
-    <string name="discover_username_required">Set a username in Settings first</string>
-    <string name="discover_all">All</string>
-    <string name="discover_filtered_by">Tagged %s</string>
-    <string name="discover_empty">No posts yet</string>
-    <string name="discover_retry">Retry</string>
-    <string name="discover_load_more">Load more</string>
-    <string name="discover_write">Write a post</string>
-    <string name="discover_choose_novel">Choose a library novel</string>
-    <string name="discover_library_empty">Add a novel to your library first.</string>
-    <string name="discover_loading_tags">Loading the novel\'s tags…</string>
-    <string name="discover_add_tag">Add a provider tag</string>
-    <string name="discover_remove_tag">Remove %s</string>
-    <string name="discover_tag_count">%d/8 tags</string>
-    <string name="discover_opinion">Your opinion</string>
-    <string name="discover_body_count">%d/500 characters · at least 10</string>
-    <string name="discover_rating_optional">Rating (optional)</string>
-    <string name="discover_rate">Rate %d out of 5 stars</string>
-    <string name="discover_rating_value">%d out of 5 stars</string>
-    <string name="discover_post">Post</string>
-    <string name="discover_post_actions">Post actions</string>
-    <string name="discover_report">Report</string>
-    <string name="discover_delete_confirm">Delete your post about %s?</string>
-    <string name="discover_report_confirm">Report the post about %s?</string>
-    <string name="discover_posted">Post published</string>
-    <string name="discover_deleted">Post deleted</string>
-    <string name="discover_reported">Post reported</string>
-    <string name="discover_already_reported">You already reported this post</string>
-    <string name="discover_already_posted">You already posted about this novel, delete it first</string>
-    <string name="discover_daily_limit">You reached today\'s post limit</string>
-    <string name="discover_could_not_post">Couldn\'t post</string>
-    <string name="discover_error">Something went wrong. Please try again.</string>
-    <string name="discover_time_now">Just now</string>
-    <string name="discover_time_minutes">%d min ago</string>
-    <string name="discover_time_hours">%d h ago</string>
-    <string name="discover_time_days">%d d ago</string>
-    <string name="discover_sort_top">Top</string>
-    <string name="discover_sort_new">New</string>
-    <string name="discover_vote_up">Upvote</string>
-    <string name="discover_vote_down">Downvote</string>
-    <string name="discover_vote_own_post">You can\'t vote on your own post</string>
-    <string name="discover_vote_error">Couldn\'t save your vote</string>
-    <string name="discover_cannot_open_novel">Can\'t open this novel</string>
 
     <!-- Tag search -->
     <string name="tag_search_unsupported">This tag isn’t supported by any enabled provider.</string>
     <string name="tag_search_provider_error">Couldn’t load results from this provider. Tap to retry.</string>
     <string name="tag_search_all_failed">Couldn’t load tag results. Check your connection and try again.</string>
 
-    <!-- Community comments -->
-    <string name="community_comments_title">Community comments</string>
-    <string name="novel_comments_default_username">Anonymous</string>
-    <string name="novel_comments_no_rating_selected">No rating selected</string>
-    <string name="novel_comments_selected_rating_format">Selected rating: %1$d out of 5 stars</string>
-    <string name="novel_comments_star_accessibility">Rate %1$d out of 5 stars</string>
-    <string name="novel_comments_rated_accessibility">Rated %1$d out of 5 stars</string>
-    <string name="novel_comments_input_hint">Write a comment (1–2000 characters)</string>
-    <string name="novel_comments_char_count">%1$d / 2000</string>
-    <string name="novel_comments_submit">Post comment</string>
-    <string name="novel_comments_update">Update comment</string>
-    <string name="novel_comments_edit">Edit</string>
-    <string name="novel_comments_delete">Delete</string>
-    <string name="novel_comments_report">Report</string>
-    <string name="novel_comments_cancel_edit">Cancel</string>
-    <string name="novel_comments_delete_confirm_title">Delete comment</string>
-    <string name="novel_comments_delete_confirm_message">Are you sure you want to delete your rating and comment?</string>
-    <string name="novel_comments_report_confirm_title">Report comment</string>
-    <string name="novel_comments_report_confirm_message">Are you sure you want to report this comment?</string>
-    <string name="novel_comments_empty">No comments yet. Be the first to rate and comment.</string>
-    <string name="novel_comments_load_more">Load more comments</string>
-    <string name="novel_comments_loading">Loading comments…</string>
-    <string name="novel_comments_submitting">Posting…</string>
-    <string name="novel_comments_posted_success">Comment posted.</string>
-    <string name="novel_comments_updated_success">Comment updated.</string>
-    <string name="novel_comments_deleted_success">Comment deleted.</string>
-    <string name="novel_comments_reported_success">Comment reported.</string>
-    <string name="novel_comments_already_reported">Already reported</string>
-    <string name="novel_comments_report_error">Couldn’t report comment. Please try again.</string>
-    <string name="novel_comments_daily_limit">You’ve reached the daily comment limit (20 per day). Please try again later.</string>
-    <string name="novel_comments_validation_error">Choose a 1–5 star rating and write a comment.</string>
-    <string name="novel_comments_sign_in_required">Sign in to rate and comment.</string>
-    <string name="novel_comments_session_expired">Your session expired. Sign in again to comment.</string>
-    <string name="novel_comments_load_network_error">Couldn’t load comments. Check your connection and try again.</string>
-    <string name="novel_comments_write_network_error">Couldn’t post comment. Check your connection and try again.</string>
-    <string name="novel_comments_service_unavailable">Comments are temporarily unavailable. Please try again.</string>
 </resources>
