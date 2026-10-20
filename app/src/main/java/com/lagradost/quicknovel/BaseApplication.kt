@@ -40,7 +40,7 @@ class BaseApplication : Application(), SingletonImageLoader.Factory, Configurati
         // are ignored inside the sync.
         LibrarySync.syncAsync(this)
 
-        // The reader reports the final position when it closes.
+        // The reader reports its position when it opens and the final one when it closes.
         BookDownloader2.chapterReadChanged += LibrarySync::onChapterReadChanged
 
         // Shows the login screen on top of MainActivity instead of touching MainActivity itself.

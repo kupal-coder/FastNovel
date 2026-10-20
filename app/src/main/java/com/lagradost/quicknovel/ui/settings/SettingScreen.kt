@@ -197,6 +197,7 @@ object SettingScreen : SearchableSettings {
         var username by remember { mutableStateOf<String?>(null) }
         var readingStatsSummary by remember { mutableStateOf<String?>(null) }
         var librarySyncSummary by remember { mutableStateOf(LibrarySync.summary(context)) }
+        val librarySyncingText = stringResource(R.string.library_sync_syncing)
         var authRefreshTick by remember { mutableStateOf(0) }
         var showSignOutDialog by remember { mutableStateOf(false) }
         var showUsernameDialog by remember { mutableStateOf(false) }
@@ -392,6 +393,7 @@ object SettingScreen : SearchableSettings {
                                 title = stringResource(R.string.library_sync),
                                 subtitle = librarySyncSummary,
                                 onClick = {
+                                    librarySyncSummary = librarySyncingText
                                     scope.launch {
                                         LibrarySync.sync(context)
                                         librarySyncSummary = LibrarySync.summary(context)
